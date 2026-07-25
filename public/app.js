@@ -1105,14 +1105,20 @@
   function orchestratorPrompt(mode) {
     const list = ORCHESTRATOR_MODELS.map(m => {
       const tag = m.coding ? '(coding)' : m.tier === 'reasoning' ? '(reasoning)' : m.tier === 'mid' ? '(mid)' : '(light)';
-      return '- ' + m.id + ' ' + tag;
+      const extra = m.vision ? '·vision' : '';
+      return '- ' + m.id + ' ' + tag + (extra ? ' ' + extra : '');
     }).join('\n');
-    return 'Ты лёгкий маршрутизатор (gpt-5-mini). Реши, что делать с запросом.\n'
-      + 'Контекст: пользователь часто разрабатывает современные приложения (код, UI, дебаг, архитектура). Для таких задач выбирай модели с меткой coding.\n'
+    return 'Ты лёгкий маршрутизатор на deepseek-chat. Реши, что делать с запросом.\n'
+      + 'Правила:\n'
+      + '• "direct" используй ТОЛЬКО для тривиальных Q&A (приветствия, перевод одной фразы, факт-вопрос).\n'
+      + '• Если пользователь просит СОЗДАТЬ, ИЗМЕНИТЬ, ОТЛАДИТЬ код/UI/файл, или задача содержит картинку (vision) — ОБЯЗАТЕЛЬНО delegate/multi, не direct.\n'
+      + '• Если задача про код/UI/дебаг/архитектуру — выбирай модель с меткой coding.\n'
+      + '• Если задача СОДЕРЖИТ изображение (vision) — выбирай модель с меткой vision.\n'
+      + 'Пользователь обычно разрабатывает современные приложения (код, UI, дебаг, архитектура). По умолчанию выбирай delegate или multi.\n'
       + 'Действия — верни ТОЛЬКО один JSON-объект (без prose, без тройных бэктиков):\n'
       + (mode === 'multi'
-        ? '1) {"action":"direct","answer":"<короткий ответ>"} — простая задача.\n2) {"action":"multi","models":["<id>","<id>"]} — сложная задача (архитектура, многошаговый код, рассуждения): выбери 2–3 id.\n'
-        : '1) {"action":"direct","answer":"<короткий ответ>"} — простая задача.\n2) {"action":"delegate","model":"<id>"} — задача среднего уровня (один id).\n')
+        ? '1) {"action":"direct","answer":"<короткий ответ>"} — тривиальный Q&A.\n2) {"action":"multi","models":["<id>","<id>"]} — сложная задача (архитектура, многошаговый код, рассуждения): выбери 2–3 id.\n'
+        : '1) {"action":"direct","answer":"<короткий ответ>"} — тривиальный Q&A.\n2) {"action":"delegate","model":"<id>"} — задача с работой (код, UI, файл, vision): один id.\n')
       + 'Список доступных id:\n' + list;
   }
 
@@ -1172,15 +1178,29 @@
     // Снимок проекта нужен только экспертам и синтезатору — роутер не должен
     // тратить токены на чужой код, его задача только классифицировать запрос.
     const ctx = await buildWorkspaceContextMessages();
+    const hasImageAttachment = !!(attachments || []).some(a => a && /^image\//i.test(a.type || ''));
+    // Если в сообщении есть картинка, а выбранная модель без vision — поднимаем
+    // первую vision-capable из списка. Иначе агент получит «не вижу картинку».
+    const pickVision = (id, preferCoding) => {
+      if (!hasImageAttachment) return id;
+      const cur = ORCHESTRATOR_MODELS.find(m => m.id === id);
+      if (cur && cur.vision) return id;
+      const candidates = ORCHESTRATOR_MODELS.filter(m => m.vision);
+      const alt = (preferCoding && candidates.find(m => m.coding)) || candidates[0] || null;
+      if (!alt || alt.id === id) return id;
+      onStep && onStep('Замена делегата на vision-модель: ' + id + ' → ' + alt.id);
+      return alt.id;
+    };
     const delegateMessages = (id) => {
-      const supportsVision = !!ORCHESTRATOR_MODELS.find(m => m.id === id)?.vision;
+      const realId = pickVision(id, true);
+      const supportsVision = !!ORCHESTRATOR_MODELS.find(m => m.id === realId)?.vision;
       return [
-        { role: 'system', content: LLM_SYSTEM_PROMPT + '\n\n(Запрос делегирован оркестратором модели ' + id + '.)' },
+        { role: 'system', content: LLM_SYSTEM_PROMPT + '\n\n(Запрос делегирован оркестратором модели ' + realId + '.)' },
         ...ctx,
         { role: 'user', content: userContentFor(content, attachments, supportsVision) }
       ];
     };
-    onStep && onStep('Маршрутизация (gpt-5-mini)…');
+    onStep && onStep('Маршрутизация (deepseek-chat)…');
     let routerResp = '';
     let routerR;
     try {
@@ -1207,7 +1227,7 @@
       return { text: decision.answer || routerResp, model: routerModel };
     }
     if (decision.action === 'delegate') {
-      const id = decision.model || 'deepseek/deepseek-coder';
+      const id = pickVision(decision.model || 'claude-sonnet-4.6-thinking-high', true);
       if (!ORCHESTRATOR_MODELS.find(m => m.id === id)) {
         onStep && onStep('Маршрутизатор выбрал неизвестную модель: ' + id + ' — возвращаю прямой ответ');
         return { text: routerResp, model: routerModel };
@@ -1227,6 +1247,8 @@
     }
     if (decision.action === 'multi') {
       let ids = Array.isArray(decision.models) ? decision.models : [];
+      // Vision-эскалация перед фильтром — иначе для картинок уйдёт запрос к модели без vision.
+      if (hasImageAttachment) ids = ids.map(id => pickVision(id, false));
       ids = ids.filter(id => ORCHESTRATOR_MODELS.find(m => m.id === id)).slice(0, 3);
       if (!ids.length) ids = ['deepseek/deepseek-r1', 'deepseek/deepseek-v4-flash-thinking', 'anthropic/claude-sonnet-4.6-thinking-high'];
       onStep && onStep('Параллельный опрос ' + ids.length + ' моделей…');
