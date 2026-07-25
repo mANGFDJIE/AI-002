@@ -1110,6 +1110,37 @@
     return /Exceeded|soft user limit|expected price|expected_cost|insufficient|not enough|balance|not available|upgrade.*subscription|subscription plan|model.*not.*supported|недоступн|не хватает|лимит|лими/i.test(String(msg));
   }
 
+  // Когда бюджет VseGPT «Exceeded soft user limit» — пробовать тот же тяжёлый
+  // delegateMessages с полным workspace-контекстом бессмысленно (входной контекст
+  // стоит денег, и даже дешёвая модель перевалит за 10 ₽). Для таких случаев —
+  // облегчённая версия без buildWorkspaceContextMessages(): только system prompt
+  // и сам пользовательский запрос + attachments. Если удалось — модель вернёт код,
+  // и applyCodeChanges всё равно запишет его в workspace, где мы его прочитаем.
+  async function slimDelegateMessages(id, supportsVision, baseContent, attachments) {
+    // Достаём кешированный снимок workspace (path + size — без содержимого),
+    // чтобы модель не выдумывала путь «app/login/page.tsx» в чужих проектах.
+    let listingLine = '';
+    try {
+      let snap = window._workspaceSnapshot;
+      if (!snap) snap = await loadWorkspaceSnapshot({ maxAgeMs: 0 });
+      if (snap && Array.isArray(snap.files) && snap.files.length) {
+        listingLine = 'Список файлов в workspace (только эти пути существуют; не придумывай новые): '
+          + snap.files.map(f => f.path + ' (' + f.size + ' Б)').join(', ');
+        if (snap.totalFiles && snap.totalFiles > snap.files.length) {
+          listingLine += ' (+ ещё файлов за пределами бюджета контекста, не показываю).';
+        }
+      } else {
+        listingLine = 'Снимок workspace сейчас недоступен — действуй только с теми файлами, что упомянуты в [🎯 ЦЕЛЬ ОПЕРАЦИИ] или прямо в запросе. Не придумывай пути вроде app/page.tsx.';
+      }
+    } catch (e) {
+      listingLine = 'Снимок workspace недоступен. Действуй только с файлами, упомянутыми в запросе или в [🎯 ЦЕЛЬ ОПЕРАЦИИ].';
+    }
+    return [
+      { role: 'system', content: LLM_SYSTEM_PROMPT + '\n\n' + listingLine + '\n\n(Запрос делегирован (slim-режим, без полного workspace-контекста) модели ' + id + '.)' },
+      { role: 'user', content: userContentFor(baseContent, attachments, supportsVision) }
+    ];
+  }
+
     function looksLikeCodeTask(text) {
     if (!text) return false;
     const t = String(text).toLowerCase();
@@ -1355,10 +1386,17 @@
           for (const m of ORCHESTRATOR_MODELS) {
             if (tried.has(m.id)) continue;
             tried.add(m.id);
-            onStep && onStep('Модель ' + id + ' недоступна → пробую ' + m.id);
+            onStep && onStep('Модель ' + id + ' недоступна → пробую ' + m.id + ' (slim-контекст)');
+            const supportsVision = !!m.vision;
             try {
-              const nr = await callOpenAI(m.id, delegateMessages(m.id));
+              // Сначала slim — без workspace-контекста, чтобы не пухнуть выше
+              // лимита VseGPT.
+              const slim = await slimDelegateMessages(m.id, supportsVision, content, attachments);
+              const nr = await callOpenAI(m.id, slim);
               if (!nr.error) { fallbackId = m.id; fallbackResp = nr; break; }
+              // Если slim тоже упирается в лимит → пробуем FULL delegateMessages
+              // (только если бюджетный экзек не повторяется дословно).
+              if (isBudgetOrModelError(nr.error)) continue;
             } catch (e) { /* keep walking */ }
           }
           if (fallbackId) return { text: fallbackResp.text, model: fallbackId };
