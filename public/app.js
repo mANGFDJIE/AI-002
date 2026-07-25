@@ -2130,16 +2130,19 @@
         // тут НЕ вставляем, чтобы не превращать поле ввода в помойку кода.
         try {
           const prev = inputEl.value || '';
-          const marker = '[Selected: ' + label + ']';
-          // Добавляем только если такого маркера ещё нет.
-          const testIdx = prev.indexOf(marker);
-          if (testIdx === -1) {
-            inputEl.value = (prev ? prev.replace(/\s+$/, '') + '\n' : '') + marker + '\n';
-            autoResize();
-            const end = inputEl.value.length;
-            inputEl.setSelectionRange(end, end);
-            inputEl.focus();
-          }
+          // Tag-style: «⌖ <button#id.cls>» — выглядит как вложенный тег/чип.
+          const marker = '⌖ ' + label;
+          // Дедуп: не пишем тот же тег дважды, и обновляем существующий маркер,
+          // если выделили другой элемент.
+          const re = /\n?⌖ <[a-z][\w-]*(?:#[\w-]+)?(?:\.[\w.-]+)*>\s*$/i;
+          let base = prev;
+          if (re.test(base)) base = base.replace(re, '');
+          else base = base.replace(/\s+$/, '');
+          inputEl.value = (base ? base : '') + (base ? '\n' : '') + marker + '\n';
+          autoResize();
+          const end = inputEl.value.length;
+          inputEl.setSelectionRange(end, end);
+          inputEl.focus();
         } catch (_) { /* textarea-edit опционален, чип уже показан */ }
         setSelectMode(false);
       } catch (e) {
