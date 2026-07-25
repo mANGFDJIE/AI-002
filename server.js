@@ -7,12 +7,10 @@ const OpenAI = require('openai');
 const app = express();
 const PORT = 5000;
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-
-const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const OLLAMA_HOST = process.env.OLLAMA_HOST;
 
 app.use(express.json({ limit: '8mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -23,80 +21,77 @@ app.use(session({
   cookie: { secure: false }
 }));
 
-const groq = GROQ_API_KEY ? new OpenAI({ baseURL: GROQ_BASE_URL, apiKey: GROQ_API_KEY }) : null;
-const ollama = new OpenAI({ baseURL: `${OLLAMA_HOST}/v1`, apiKey: 'ollama' });
-const openrouter = OPENROUTER_API_KEY ? new OpenAI({ baseURL: OPENROUTER_BASE_URL, apiKey: OPENROUTER_API_KEY }) : null;
+const openrouter = OPENROUTER_API_KEY ? new OpenAI({
+  baseURL: OPENROUTER_BASE_URL,
+  apiKey: OPENROUTER_API_KEY
+}) : null;
 
 const chats = {};
 
-const freeModelPresets = {
-  auto: { name: 'Авто', label: 'Авто', provider: 'groq', model: 'auto', color: 'auto', desc: 'Автоподбор бесплатной open-source модели', free: true },
-  llama31_70b: { name: 'Llama 3.1 70B', label: 'Llama 3.1 70B', provider: 'groq', model: 'llama-3.1-70b-versatile', color: 'pro', desc: 'Мощная open-source модель от Meta', free: true },
-  llama31_8b: { name: 'Llama 3.1 8B', label: 'Llama 3.1 8B', provider: 'groq', model: 'llama-3.1-8b-instant', color: 'economy', desc: 'Быстрая и дешевая для простых задач', free: true },
-  llama32_3b: { name: 'Llama 3.2 3B', label: 'Llama 3.2 3B', provider: 'groq', model: 'llama-3.2-3b-preview', color: 'economy', desc: 'Легкая модель для быстрых ответов', free: true },
-  llama32_1b: { name: 'Llama 3.2 1B', label: 'Llama 3.2 1B', provider: 'groq', model: 'llama-3.2-1b-preview', color: 'economy', desc: 'Самая легкая open-source модель', free: true },
-  mixtral: { name: 'Mixtral 8x7B', label: 'Mixtral 8x7B', provider: 'groq', model: 'mixtral-8x7b-32768', color: 'standard', desc: 'Хороший баланс для кода и анализа', free: true },
-  gemma2: { name: 'Gemma 2 9B', label: 'Gemma 2 9B', provider: 'groq', model: 'gemma2-9b-it', color: 'standard', desc: 'Open-source модель от Google', free: true }
+const openRouterFreeModels = {
+  auto: { name: 'Free Router', label: 'Free Router', provider: 'openrouter', model: 'openrouter/free', color: 'auto', desc: 'Авто-выбор лучшей свободной модели', fallbackModels: ['openai/gpt-oss-20b:free', 'nvidia/nemotron-3-super-120b-a12b:free', 'google/gemma-4-31b-it:free', 'cohere/north-mini-code:free'] },
+  gptOss20b: { name: 'GPT-OSS 20B', label: 'GPT-OSS 20B', provider: 'openrouter', model: 'openai/gpt-oss-20b:free', color: 'standard', desc: 'OpenAI open-source — код и общие задачи', fallbackModels: ['openai/gpt-oss-20b', 'openrouter/free'] },
+  nemotron120b: { name: 'Nemotron 3 Super 120B', label: 'Nemotron 120B', provider: 'openrouter', model: 'nvidia/nemotron-3-super-120b-a12b:free', color: 'pro', desc: 'NVIDIA — анализ и архитектура', fallbackModels: ['nvidia/nemotron-3-super-120b-a12b', 'openrouter/free'] },
+  gemma4_31b: { name: 'Gemma 4 31B', label: 'Gemma 4 31B', provider: 'openrouter', model: 'google/gemma-4-31b-it:free', color: 'standard', desc: 'Google — UI-дизайн и генерация', fallbackModels: ['google/gemma-4-31b-it', 'openrouter/free'] },
+  northMiniCode: { name: 'North Mini Code', label: 'North Mini Code', provider: 'openrouter', model: 'cohere/north-mini-code:free', color: 'economy', desc: 'Cohere — отладка и фиксы', fallbackModels: ['cohere/north-mini-code', 'openrouter/free'] }
 };
 
-const ollamaPresets = {
-  llama3: { name: 'Ollama: Llama 3', label: 'Ollama Llama 3', provider: 'ollama', model: 'llama3', color: 'standard', desc: 'Локальная модель', free: true },
-  qwen: { name: 'Ollama: Qwen 2.5', label: 'Ollama Qwen 2.5', provider: 'ollama', model: 'qwen2.5', color: 'standard', desc: 'Локальная модель', free: true },
-  mistral: { name: 'Ollama: Mistral', label: 'Ollama Mistral', provider: 'ollama', model: 'mistral', color: 'standard', desc: 'Локальная модель', free: true }
-};
-
-const paidFallbacks = {
-  gpt4o: { name: 'GPT-4o (OpenRouter)', label: 'GPT-4o', provider: 'openrouter', model: 'openai/gpt-4o', color: 'standard', desc: 'Требует кредитов OpenRouter', free: false },
-  claudeSonnet: { name: 'Claude 3.5 Sonnet (OpenRouter)', label: 'Claude 3.5 Sonnet', provider: 'openrouter', model: 'anthropic/claude-3.5-sonnet', color: 'pro', desc: 'Требует кредитов OpenRouter', free: false }
-};
-
-function buildModelPresets() {
-  const presets = { ...freeModelPresets };
-  if (GROQ_API_KEY) {
-    // free models already included
-  }
-  if (process.env.OLLAMA_HOST) {
-    Object.assign(presets, ollamaPresets);
-  }
-  if (OPENROUTER_API_KEY) {
-    Object.assign(presets, paidFallbacks);
-  }
-  return presets;
+function getTaskType(content) {
+  const c = content.toLowerCase();
+  if (/(ui|дизайн|css|html|верстка|интерфейс|макет|figma|tailwind|стиль)/.test(c)) return 'ui';
+  if (/(debug|ошибк|исправь|fix|баг|stack trace|traceback|console|error|не работает|падает)/.test(c)) return 'debug';
+  if (/(анализ|архитектура|план|система|объясни|почему|сравни|оптимизация|рефактор|докажи|рассужд)/.test(c) || c.length > 900) return 'analysis';
+  if (/(код|напиши|создай|сделай|функция|скрипт|api|python|js|react|node|sql|json|endpoint|route|handler|component)/.test(c)) return 'code';
+  return 'general';
 }
 
-function getProvider(preset) {
-  if (preset.provider === 'groq') return groq;
-  if (preset.provider === 'ollama') return ollama;
-  if (preset.provider === 'openrouter') return openrouter;
-  return groq;
+function selectModelByTask(taskType) {
+  switch (taskType) {
+    case 'ui': return openRouterFreeModels.gemma4_31b;
+    case 'debug': return openRouterFreeModels.northMiniCode;
+    case 'analysis': return openRouterFreeModels.nemotron120b;
+    case 'code': return openRouterFreeModels.gptOss20b;
+    default: return openRouterFreeModels.gptOss20b;
+  }
 }
 
 function modelSelector(content, mode) {
-  const presets = buildModelPresets();
-  if (mode && mode !== 'auto' && presets[mode]) return presets[mode];
-  const c = content.toLowerCase();
-  const isCode = /(код|напиши|создай|сделай|debug|ошибк|функция|скрипт|html|css|js|python|react|api|json|sql)/.test(c);
-  const isComplex = /(анализ|почему|объясни|план|архитектура|оптимиз|рефактор|сравни|рассужд|докажи|система|дизайн)/.test(c) || c.length > 800;
-  const isSimple = c.length < 120 && !isCode && !isComplex;
+  if (mode && mode !== 'auto') return openRouterFreeModels[mode] || openRouterFreeModels.gptOss20b;
+  return selectModelByTask(getTaskType(content));
+}
 
-  if (isComplex && isCode) return presets.llama31_70b || presets.mixtral || presets.auto;
-  if (isCode) return presets.mixtral || presets.llama31_8b || presets.auto;
-  if (isComplex) return presets.llama31_70b || presets.mixtral || presets.auto;
-  if (isSimple) return presets.llama32_1b || presets.llama32_3b || presets.auto;
-  return presets.llama31_8b || presets.auto;
+function isInsufficientCreditsError(err) {
+  const msg = (err.message || '').toLowerCase();
+  const status = err.status || err.statusCode || 0;
+  return status === 402 || msg.includes('insufficient credits') || msg.includes('credits') || msg.includes('payment') || msg.includes('purchase');
+}
+
+async function tryGenerate(client, modelId, messages, maxRetries = 2) {
+  let lastError = null;
+  for (let i = 0; i <= maxRetries; i++) {
+    try {
+      const completion = await client.chat.completions.create({
+        model: modelId,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4000
+      });
+      return { completion, modelId, fallback: i > 0 };
+    } catch (err) {
+      lastError = err;
+      if (!isInsufficientCreditsError(err)) break;
+    }
+  }
+  throw lastError;
 }
 
 app.get('/api/config', (req, res) => {
-  const hasGroq = !!GROQ_API_KEY;
-  const hasOllama = !!process.env.OLLAMA_HOST;
-  const hasOpenRouter = !!OPENROUTER_API_KEY;
   res.json({
-    hasGroq,
-    hasOllama,
-    hasOpenRouter,
-    activeProvider: hasGroq ? 'groq' : (hasOllama ? 'ollama' : 'none'),
-    presets: buildModelPresets(),
-    freeOnly: true
+    mode: 'openrouter',
+    hasOpenRouter: !!OPENROUTER_API_KEY,
+    hasGroq: !!GROQ_API_KEY,
+    hasOllama: !!OLLAMA_HOST,
+    presets: openRouterFreeModels
   });
 });
 
@@ -106,77 +101,82 @@ app.get('/api/messages', (req, res) => {
 });
 
 app.post('/api/messages', async (req, res) => {
+  if (!OPENROUTER_API_KEY) return res.status(503).json({ error: 'OPENROUTER_API_KEY не настроен' });
   const sid = req.session.id;
   const { content, model = 'auto' } = req.body;
   if (!content || !content.trim()) return res.status(400).json({ error: 'Пустое сообщение' });
-
-  const presets = buildModelPresets();
-  const preset = modelSelector(content.trim(), model === 'auto' ? 'auto' : model);
-  const client = getProvider(preset);
-
-  if (!client && preset.provider !== 'ollama') {
-    return res.status(503).json({ error: 'Нет подключенного провайдера. Добавьте GROQ_API_KEY или OLLAMA_HOST.' });
-  }
 
   if (!chats[sid]) chats[sid] = [];
   const userMsg = { id: uuidv4(), role: 'user', content: content.trim(), ts: Date.now() };
   chats[sid].push(userMsg);
 
+  const preset = modelSelector(content.trim(), model === 'auto' ? 'auto' : model);
   const thinkingId = uuidv4();
   const replyId = uuidv4();
 
   res.json({ userMsg, thinkingId, replyId, model: preset.name });
 
-  try {
-    const messages = chats[sid].filter(m => m.role === 'user' || m.role === 'assistant').slice(-20).map(m => ({ role: m.role, content: m.content }));
-    const start = Date.now();
+  const history = chats[sid].filter(m => m.role === 'user' || m.role === 'assistant').slice(-20).map(m => ({ role: m.role, content: m.content }));
+  const messages = [
+    { role: 'system', content: 'Вы — полноценный автономный AI-агент. Умеете писать и редактировать код, анализировать, проектировать, объяснять. Отвечайте на русском языке, если запрос на русском. Будьте конкретны и полезны.' },
+    ...history
+  ];
 
-    let completion;
-    if (preset.provider === 'ollama') {
-      completion = await ollama.chat.completions.create({
-        model: preset.model,
-        messages: [
-          { role: 'system', content: 'Вы — полезный AI-агент. Отвечайте на русском языке, если запрос на русском.' },
-          ...messages
-        ],
-        temperature: 0.7,
-        max_tokens: 4000
-      });
-    } else {
-      completion = await client.chat.completions.create({
-        model: preset.model,
-        messages: [
-          { role: 'system', content: 'Вы — полноценный автономный AI-агент. Вы умеете писать, редактировать, анализировать код, строить планы, объяснять и выполнять задачи пользователя. Отвечайте на русском языке, если запрос на русском. Будьте конкретны и полезны.' },
-          ...messages
-        ],
-        temperature: 0.7,
-        max_tokens: 4000
-      });
+  const start = Date.now();
+  let usedModel = preset.name;
+  let usedModelId = preset.model;
+  let fallbackUsed = false;
+  let finalContent = '';
+  let error = false;
+
+  try {
+    // Try main model, then fallback chain
+    const candidates = [preset.model, ...(preset.fallbackModels || [])];
+    let result = null;
+
+    for (let i = 0; i < candidates.length; i++) {
+      try {
+        const completion = await openrouter.chat.completions.create({
+          model: candidates[i],
+          messages,
+          temperature: 0.7,
+          max_tokens: 4000
+        });
+        result = { completion, modelId: candidates[i], fallback: i > 0 };
+        break;
+      } catch (err) {
+        if (!isInsufficientCreditsError(err) && i === candidates.length - 1) throw err;
+        if (!isInsufficientCreditsError(err)) throw err;
+      }
     }
 
-    const elapsed = Math.max(1, Math.round((Date.now() - start) / 1000));
-    const reply = {
-      id: replyId,
-      role: 'assistant',
-      content: completion.choices[0].message.content,
-      ts: Date.now(),
-      worked: elapsed,
-      model: preset.name
-    };
-    chats[sid].push(reply);
+    if (!result) throw new Error('Ни одна бесплатная модель не ответила');
+
+    usedModelId = result.modelId;
+    fallbackUsed = result.fallback;
+
+    // Resolve display name
+    const found = Object.values(openRouterFreeModels).find(m => m.model === usedModelId || (m.fallbackModels || []).includes(usedModelId));
+    usedModel = found ? found.name : usedModelId;
+    if (fallbackUsed) usedModel += ' (fallback)';
+
+    finalContent = result.completion.choices[0].message.content;
   } catch (err) {
-    const errorMsg = err.message || 'неизвестная ошибка';
-    const reply = {
-      id: replyId,
-      role: 'assistant',
-      content: `Ошибка модели: ${errorMsg}`,
-      ts: Date.now(),
-      worked: 0,
-      model: preset.name,
-      error: true
-    };
-    chats[sid].push(reply);
+    error = true;
+    finalContent = `Ошибка модели: ${err.message || 'неизвестная ошибка'}`;
   }
+
+  const elapsed = Math.max(1, Math.round((Date.now() - start) / 1000));
+  const reply = {
+    id: replyId,
+    role: 'assistant',
+    content: finalContent,
+    ts: Date.now(),
+    worked: elapsed,
+    model: usedModel,
+    error
+  };
+  chats[sid].push(reply);
 });
 
 app.get('/api/messages/:id', (req, res) => {

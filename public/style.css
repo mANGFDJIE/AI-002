@@ -682,6 +682,40 @@ textarea::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2
   transition: background .15s;
 }
 .no-provider-banner:hover { background: rgba(248,113,113,.18); }
+.no-provider-banner.warning {
+  background: rgba(74,222,128,.12);
+  border-color: rgba(74,222,128,.25);
+  color: var(--green);
+}
+
+/* ─── OPENROUTER FALLBACK BADGE ──────────────────────── */
+.fallback-badge {
+  font-size: 9px;
+  background: rgba(251,146,60,.18);
+  color: var(--orange);
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-left: 4px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+.model-tag {
+  font-size: 10px;
+  color: var(--text3);
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-left: 4px;
+}
+
+.provider-card .link {
+  font-size: 10px;
+  color: var(--text3);
+  margin-top: 2px;
+}
+.provider-card .status { font-size: 10.5px; }
 
 .dot {
   width: 7px;

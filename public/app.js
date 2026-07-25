@@ -22,7 +22,7 @@
   let currentModel = 'auto';
   let sending = false;
   let modelPresets = {};
-  let config = { hasGroq: false, hasOllama: false, hasOpenRouter: false, activeProvider: 'none' };
+  let config = { hasOpenRouter: false, hasGroq: false, hasOllama: false };
 
   const colorMap = { economy: '#4ade80', standard: '#3b82f6', pro: '#a78bfa', auto: 'linear-gradient(135deg,#4ade80,#3b82f6,#a78bfa)' };
 
@@ -34,7 +34,7 @@
       renderModelDropdown();
       renderProviders();
       updateModelDisplay();
-      if (!config.hasGroq && !config.hasOllama) showNoProviderBanner();
+      if (!config.hasOpenRouter) showNoProviderBanner();
     } catch (e) { console.error(e); }
   }
 
@@ -46,10 +46,10 @@
     banner.className = 'no-provider-banner';
     banner.innerHTML = `
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-        <circle cx="7" cy="7" r="6" stroke="#f87171" stroke-width="1.2"/>
-        <path d="M7 4v3M7 9v1" stroke="#f87171" stroke-width="1.2" stroke-linecap="round"/>
+        <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M7 4v3M7 9v1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
       </svg>
-      <span>Нет подключенного провайдера. Откройте настройки →</span>
+      <span>OpenRouter не подключен. Откройте настройки →</span>
     `;
     banner.addEventListener('click', () => settingsPanel.classList.add('open'));
     document.querySelector('.chat-panel').insertBefore(banner, messagesEl);
@@ -73,7 +73,7 @@
           <path d="M10 14h16M10 20h10" stroke="#3b4258" stroke-width="2" stroke-linecap="round"/>
         </svg>
         <p>Начните диалог</p>
-        <span>Бесплатные open-source модели: Llama, Mixtral, Gemma.</span>
+        <span>Бесплатные open-source модели через OpenRouter.</span>
       </div>`;
   }
 
@@ -83,8 +83,7 @@
       const div = document.createElement('div');
       div.className = 'dropdown-item' + (key === currentModel ? ' active' : '');
       div.dataset.model = key;
-      const badge = p.free ? '<span class="free-badge">бесплатно</span>' : '';
-      div.innerHTML = `<span class="dot ${p.color}"></span>${p.label}${badge}<span class="desc">${p.desc}</span>`;
+      div.innerHTML = `<span class="dot ${p.color}"></span>${p.label}<span class="free-badge">бесплатно</span><span class="desc">${p.desc}</span>`;
       div.addEventListener('click', () => selectModel(key));
       modelDropdown.appendChild(div);
     });
@@ -98,16 +97,16 @@
   }
 
   function updateModelDisplay() {
-    const p = modelPresets[currentModel] || { label: 'Авто', color: 'auto' };
+    const p = modelPresets[currentModel] || { label: 'Free Router', color: 'auto' };
     modelLabel.textContent = p.label;
     modelDot.style.background = colorMap[p.color] || colorMap.auto;
   }
 
   function renderProviders() {
     const providers = [
-      { name: 'Groq', key: 'GROQ_API_KEY', ok: config.hasGroq, models: 'Llama 3.1/3.2, Mixtral, Gemma 2', link: 'console.groq.com/keys' },
-      { name: 'Ollama', key: 'OLLAMA_HOST', ok: config.hasOllama, models: 'Локальные модели', link: 'ollama.com' },
-      { name: 'OpenRouter', key: 'OPENROUTER_API_KEY', ok: config.hasOpenRouter, models: 'GPT-4o, Claude, DeepSeek (требует кредитов)', link: 'openrouter.ai/settings' }
+      { name: 'OpenRouter', key: 'OPENROUTER_API_KEY', ok: config.hasOpenRouter, models: 'GPT-OSS, Nemotron, Gemma, North (free)', link: 'openrouter.ai/settings' },
+      { name: 'Groq', key: 'GROQ_API_KEY', ok: config.hasGroq, models: 'Llama, Mixtral, Gemma (требует ключ)', link: 'console.groq.com/keys' },
+      { name: 'Ollama', key: 'OLLAMA_HOST', ok: config.hasOllama, models: 'Локальные модели', link: 'ollama.com' }
     ];
     providerGrid.innerHTML = providers.map(pr => `
       <div class="provider-card">
@@ -121,7 +120,6 @@
     `).join('');
   }
 
-  // ── Messages ──────────────────────────────────────────
   function appendUserMsg(content, ts) {
     const div = document.createElement('div');
     div.className = 'msg-user';
@@ -354,7 +352,7 @@
   scanBtn.addEventListener('click', async () => {
     scanBtn.disabled = true;
     scanBtn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:1.5px;"></div> Проверка...`;
-    scanStatus.textContent = 'Проверяю провайдеров...';
+    scanStatus.textContent = 'Проверяю OpenRouter...';
     try {
       const res = await fetch('/api/config');
       const cfg = await res.json();
@@ -363,16 +361,16 @@
       renderModelDropdown();
       renderProviders();
       updateModelDisplay();
-      if (!cfg.hasGroq && !cfg.hasOllama) {
-        scanStatus.innerHTML = 'Нет подключенных бесплатных провайдеров.<br>Добавьте GROQ_API_KEY (бесплатно) или OLLAMA_HOST.';
+      if (!cfg.hasOpenRouter) {
+        scanStatus.innerHTML = 'OpenRouter не подключен. Добавьте OPENROUTER_API_KEY в секреты.';
       } else {
-        scanStatus.innerHTML = `Активен: ${cfg.activeProvider}.<br>Доступно моделей: ${Object.keys(cfg.presets).length}.`;
+        scanStatus.innerHTML = `OpenRouter подключен.<br>Доступно бесплатных моделей: ${Object.keys(cfg.presets).length}.`;
       }
     } catch (e) {
       scanStatus.textContent = 'Ошибка проверки: ' + e.message;
     } finally {
       scanBtn.disabled = false;
-      scanBtn.textContent = 'Проверить доступность';
+      scanBtn.textContent = 'Проверить провайдеров';
     }
   });
 
