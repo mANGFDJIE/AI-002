@@ -1322,12 +1322,24 @@
 
   async function sendMessage() {
     const rawContent = inputEl.value.trim();
-    const attachments = (window.__getPendingAttachments && window.__getPendingAttachments()) || [];
+    const allAttach = (window.__getPendingAttachments && window.__getPendingAttachments()) || [];
+    // ── Сборка текста из select-element chips (виртуальные «⌖ <button>» чипы).
+    // Каждый такой чип превращаем в блок `[Selected <tag>]\n​```html\n<outerHTML>​```\
+    // и приклеиваем сверху пользовательского текста — чтобы LLM получил outerHTML
+    // явно, без inline-кода в textarea (Replit Agent стиль).
+    const snippetBlocks = [];
+    const attachments = allAttach.filter(a => {
+      if (a && a.type === 'select-element' && a.html) {
+        snippetBlocks.push('[Selected ' + (a.name || ('<' + (a.tag || 'div') + '>')) + ']\n```html\n' + a.html + '\n```');
+        return false;
+      }
+      return true;
+    });
     // Просто текст пользователя — без префикса со списком путей. Файлы уже
     // отрисованы в пузыре сообщения как превью, а их содержимое попадает в
     // модель через workspace-snapshot (system-message). Повторять пути в
     // самом запросе — шум.
-    const content = rawContent;
+    const content = snippetBlocks.concat(rawContent ? [rawContent] : []).join('\n\n');
     if (!content || sending) return;
     // Снимем чипы сразу — повторно слать одни и те же вложения не надо.
     if (attachments.length) {
@@ -1983,6 +1995,10 @@
     }
     function render() {
       const list = pending.map((p, i) => {
+        if (p.type === 'select-element') {
+          // Replit-Agent-style: «⌖ <button#id.cls> ×» без имени файла и без размера.
+          return `<span class="attach-chip chip-select" data-i="${i}" title="Выбран: ${escHtml(p.name)}">⌖ ${escHtml(p.name)} <button type="button" class="attach-chip-x" data-i="${i}" title="Убрать">×</button></span>`;
+        }
         const icon = isImage(p.path) ? '🖼' : '📎';
         const fname = p.path.split('/').pop();
         return `<span class="attach-chip" data-i="${i}" title="${p.path}">${icon} ${fname} <em>${fmtSize(p.size)}</em><button type="button" class="attach-chip-x" data-i="${i}" title="Убрать">×</button></span>`;
@@ -2051,28 +2067,26 @@
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        const idShort = detail && detail.id ? '#' + detail.id : '';
+        const clsShort = detail && detail.classes ? '.' + String(detail.classes).trim().split(/\s+/).join('.') : '';
+        const label = '<' + tag + idShort + clsShort + '>';
         const size = new Blob([snippet]).size;
         const pending = (window.__getPendingAttachments && window.__getPendingAttachments()) || [];
-        pending.push({ path: (j.path || path), size, name: 'selection.html', type: 'text/html', dataUrl: null });
+        // ── Replit-Agent-стиль: выбранный элемент становится виртуальным
+        // attach-chip («⌖ <button> ×») рядом с другими вложениями; в textarea
+        // НИЧЕГО не вставляем. outerHTML хранится в .html — он попадёт в
+        // user-content автоматически при Send (см. sendMessage).
+        pending.push({
+          path: (j.path || path),
+          size,
+          name: label,
+          type: 'select-element',
+          dataUrl: null,
+          html: safeOuter,
+          tag, id: detail && detail.id || '', classes: detail && detail.classes || ''
+        });
         if (window.__renderAttachChips) window.__renderAttachChips();
-        if (window.pushConsoleLine) window.pushConsoleLine('log', ['Selection добавлен', j.path || path]);
-        // ── Replit-Agent-стиль: выбранный элемент сразу попадает в поле ввода как
-        // блок кода. Пользователь дописывает вопрос ниже и жмёт Send — LLM получает
-        // outerHTML прямо в user-content, без необходимости «вспоминать» через
-        // workspace-snapshot.
-        try {
-          const idShort = (detail && detail.id) ? '#' + detail.id : '';
-          const clsShort = (detail && detail.classes) ? '.' + String(detail.classes).trim().split(/\s+/).join('.') : '';
-          const head = '[Selected <' + tag + idShort + clsShort + '>]';
-          const block = head + '\n```html\n' + safeOuter + '\n```\n';
-          const prev = inputEl.value || '';
-          inputEl.value = (prev ? prev.replace(/\s+$/, '') + '\n\n' : '') + block;
-          autoResize();
-          inputEl.focus();
-          const end = inputEl.value.length;
-          inputEl.setSelectionRange(end, end);
-          if (window.pushConsoleLine) window.pushConsoleLine('log', ['Selection вставлен в поле ввода (' + tag + ')']);
-        } catch (_) { /* ок, workspace-файл уже сохранён — этого достаточно */ }
+        if (window.pushConsoleLine) window.pushConsoleLine('log', ['Выбран ' + label]);
         setSelectMode(false);
       } catch (e) {
         if (window.pushConsoleLine) window.pushConsoleLine('error', ['Selection failed', e.message || String(e)]);
