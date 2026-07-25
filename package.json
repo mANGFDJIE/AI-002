@@ -8,6 +8,10 @@
   "dependencies": {
     "express": "^4.22.2",
     "express-session": "^1.19.0",
-    "uuid": "^9.0.1"
+    "node-fetch": "^3.3.2",
+    "openai": "^6.49.0",
+    "simple-git": "^3.36.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.21.1"
   }
 }
