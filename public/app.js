@@ -1159,13 +1159,16 @@
       return '- ' + m.id + ' ' + tag + (extra ? ' ' + extra : '');
     }).join('\n');
     return [
+      'ЖЁСТКОЕ ПРАВИЛО: ответ должен состоять ИСКЛЮЧИТЕЛЬНО из одного валидного JSON. Никаких пояснений, размышлений, prose, Markdown-обёрток до или после JSON. Только JSON.',
+      '',
       'Ты лёгкий маршрутизатор (deepseek-chat). Реши, что делать с запросом пользователя.',
       '',
       'Правила:',
-      '- "direct" ТОЛЬКО для тривиального Q&A: приветствие, перевод одной фразы, математика в одно действие, факт.',
-      '- Любая задача про СОЗДАТЬ / ИЗМЕНИТЬ / УДАЛИТЬ / ОТЛАДИТЬ код/UI/файл/страницу — ОБЯЗАТЕЛЬНО delegate или multi.',
+      '- "direct" ТОЛЬКО для тривиального Q&A: приветствие, перевод одной фразы, математика в одно действие, факт. Поле answer тогда содержит КРАТКИЙ прямой ответ.',
+      '- Любая задача про СОЗДАТЬ / ИЗМЕНИТЬ / УДАЛИТЬ / ОТЛАДИТЬ код/UI/файл/страницу (даже если пользователь просто говорит «посмотри/исправь/переделай/сделай красивее») — ОБЯЗАТЕЛЬНО delegate или multi.',
       '- Если в задаче картинка (vision) — выбирай модель с меткой vision (по умолчанию самую сильную).',
       '- Если задача про код/UI/архитектуру — выбирай модель с меткой coding.',
+      '- Если задача содержит «[🎯 ЦЕЛЬ ОПЕРАЦИИ]» или «⌖ <tag>» — это явный указатель на правку конкретного файла. Игнорировать нельзя.',
       '',
       'ВАЖНО: пользователь разрабатывает современные приложения. По умолчанию выбирай delegate или multi — direct для таких задач НЕДОПУСТИМ.',
       '',
@@ -1173,7 +1176,7 @@
         ? 'Верни ОДИН JSON-объект: {"action":"multi","models":["<id>","<id>","<id>"]} — выбери 2–3 id (один с coding, один с vision если есть картинка).'
         : 'Верни ОДИН JSON-объект: {"action":"delegate","model":"<id>"} — выбери id с coding/vision под задачу.',
       '',
-      'Без prose. Без тройных бэктиков. Без пояснений.',
+      'Без prose. Без тройных бэктиков. Без пояснений. Без "Мы видим, что...". Один JSON от первого до последнего символа.',
       '',
       'Список доступных id:',
       list
@@ -1285,8 +1288,38 @@
       decision = JSON.parse(m ? m[0] : routerResp);
     } catch {}
     if (decision.action === 'direct') {
+      const directText = (decision.answer && decision.answer.trim()) || routerResp || '';
+      // Если задача явно про код, а ответ маршрутизатора — verbose prose
+      // ("Мы видим, что...", "Нужно помнить, о какой странице речь...") вместо
+      // короткого ответа или блоков кода — это НЕ direct, прокинем в delegate.
+      const verboseLeak = /Мы видим|Из файлов видно|Нужно помнить|Привет студент|Давайте разберёмся|Я рассмотрю|Ниже представлено|Ниже приведён/i.test(directText);
+      const hasCodeBlock = /```[\s\S]+?(```|$)/.test(directText) || /<!--\s*file:|\/\/\s*file:/.test(directText)
+                        || /^<!doctype\s+html/i.test(directText.trim()) || /^<html\b/i.test(directText.trim());
+      if ((looksLikeCodeTask(content) && !hasCodeBlock) || verboseLeak) {
+        onStep && onStep('Маршрутизатор вернул prose вместо кода → делегирую сильной модели');
+        const firstStrong = ORCHESTRATOR_MODELS.find(m => m.coding) || ORCHESTRATOR_MODELS[0];
+        const strongId = pickVision(firstStrong.id, true);
+        try {
+          const r = await callOpenAI(strongId, delegateMessages(strongId));
+          if (!r.error) {
+            // тот же retry-once через coercion, чтобы получить код
+            const codeImplied = looksLikeCodeTask(content);
+            const rHasCb = /```[\s\S]+?(```|$)/.test(r.text) || /<!--\s*file:|\/\/\s*file:/.test(r.text);
+            if (codeImplied && !rHasCb) {
+              try {
+                const r2 = await callOpenAI(strongId, [
+                  ...delegateMessages(strongId),
+                  { role: 'user', content: 'ПРЕДЫДУЩИЙ ОТВЕТ НЕ СОДЕРЖАЛ КОДА. Повтори ответ строго: полные блоки кода в тройных бэктиках с пометкой `// file: path` или `<!-- file: path -->`. Никаких prose "Мы видим/Из файлов видно/Hужно помнить". Только блоки кода + одна строка итога.' }
+                ]);
+                if (!r2.error && r2.text) return { text: r2.text, model: strongId };
+              } catch {}
+            }
+            return { text: r.text, model: strongId };
+          }
+        } catch (e) { onStep && onStep('Strong delegate упал: ' + e.message); }
+      }
       onStep && onStep('Прямой ответ маршрутизатора');
-      return { text: decision.answer || routerResp, model: routerModel };
+      return { text: directText, model: routerModel };
     }
     if (decision.action === 'delegate') {
       // Если маршрутизатор не указал модель — берём самую сильную coding-вариант.
