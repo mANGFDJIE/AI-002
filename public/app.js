@@ -1086,6 +1086,21 @@
     return html;
   }
 
+  // ── Чистим «код в чате» после applyCodeChanges ─────────────────────────
+  // Replit Agent-стиль: если ассистент создал/обновил файлы — в пузыре чата НЕ
+  // показываем ни ```fenced``` блоки, ни большие простыни CSS/JS/HTML. Только
+  // краткое резюме «📁 Записано в workspace: index.html, …» в конце. Prose
+  // (объяснения, инструкции, приветствия) остаётся как есть.
+  function stripCodeFromChat(text, changes) {
+    if (!text) return text;
+    if (!changes || !changes.length) return text;
+    const list = changes.map(c => '`' + c.path + '`').join(', ');
+    let out = text.replace(/```[\s\S]*?```/g, '');
+    out = out.replace(/\n{3,}/g, '\n\n').trim();
+    if (!out) out = 'Готово.';
+    return out + '\n\n📁 **Записано в workspace**: ' + list + '\n';
+  }
+
   // ── Оркестратор (gpt-5-mini как маршрутизатор) ────────────────
   // Список моделей, реально доступных на базовом тарифе vsegpt
   // (gpt-5.4-pro-high, claude-opus-4.6, deepseek-v4-pro и v3.2-alt-thinking
@@ -1417,7 +1432,10 @@
           finalizeStreaming(thinkEl, full, elapsed, decoration, false);
           saveMessages('assistant', full, { model: 'local' });
           const changes = extractCodeChanges(full);
-          if (changes.length) await applyCodeChanges(changes);
+          if (changes.length) {
+            await applyCodeChanges(changes);
+            full = stripCodeFromChat(full, changes);
+          }
           sending = false;
           sendBtn.disabled = false;
           return;
@@ -1529,7 +1547,10 @@
           finalizeStreaming(thinkEl, full, elapsed, decoration, false);
           saveMessages('assistant', full, { model: currentModel });
           const changes = extractCodeChanges(full);
-          if (changes.length) await applyCodeChanges(changes);
+          if (changes.length) {
+            await applyCodeChanges(changes);
+            full = stripCodeFromChat(full, changes);
+          }
         } catch (e) {
           console.error(e);
           finalizeStreaming(thinkEl, 'Ошибка DeepSeek: ' + (e.message || e), 0, decoration, true);
@@ -1612,7 +1633,10 @@
       }
 
       const changes = extractCodeChanges(full);
-      if (changes.length) await applyCodeChanges(changes);
+      if (changes.length) {
+        await applyCodeChanges(changes);
+        full = stripCodeFromChat(full, changes);
+      }
 
       sending = false;
       sendBtn.disabled = false;
