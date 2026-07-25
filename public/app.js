@@ -1100,6 +1100,16 @@
   // показываем ни ```fenced``` блоки, ни большие простыни CSS/JS/HTML. Только
   // краткое резюме «📁 Записано в workspace: index.html, …» в конце. Prose
   // (объяснения, инструкции, приветствия) остаётся как есть.
+  // Эвристика: похоже, что задача требует кода (UI/правки/создание).
+  // Используется в делегате/мульти, чтобы ПЕРЕПРОСИТЬ модель, если она вернула prose без кода.
+  function looksLikeCodeTask(text) {
+    if (!text) return false;
+    const t = String(text).toLowerCase();
+    return /\b(создай|сделай|сделайте|измени|измените|удали|удалите|переименуй|переименуйте|добавь|добавьте|замени|замените|переделай|переделайте|допиши|допишите|исправь|исправьте|почини|почините|доделай|доделайте|верстай|верстайте|отрисуй|отрисуйте|стилизуй|нарисуй|нужна|нужно|требуется|напиши|пиши|оформи|изменить|закоди|закодируй|закодируйте|стиль|страница|страницу|лэ?ндинг|форму|кнопк|button|сделай так|чтобы был[аои]?|верни|пришли|сверстай|доработай|перепиши|правь|правка|выведи|вывести|форму|форму|стилизац|тёмн|темн|светл|гладк|кругл|блок|секция|hero|меню|footer)\b/.test(t)
+      || /\b(create|edit|modify|update|delete|remove|add|build|implement|change|refactor|rewrite|fix|repair|design|style|render|draw)\b/.test(t)
+      || /`?\/?[\w.-]+\.(html|css|js|json|jsx|tsx|md)`?/i.test(t);
+  }
+
   function stripCodeFromChat(text, changes) {
     if (!text) return text;
     // Всегда режем fenced-блоки из чата — даже если extractCodeChanges их не
@@ -1132,7 +1142,7 @@
   //   reasoning-> пошаговое планирование.
   const ORCHESTRATOR_MODELS = [
     { id: 'anthropic/claude-sonnet-4.6-thinking-high',  tier: 'premium',   coding: true,  vision: true,  cost: 12 },
-    { id: 'anthropic/claude-opus-4.5',                 tier: 'premium',   coding: true,  vision: true,  cost: 18 },
+    { id: 'anthropic/claude-opus-4.6',                 tier: 'premium',   coding: true,  vision: true,  cost: 18 },
     { id: 'anthropic/claude-sonnet-4.5',               tier: 'strong',    coding: true,  vision: true,  cost: 8 },
     { id: 'anthropic/claude-sonnet-4',                 tier: 'strong',    coding: true,  vision: true,  cost: 6 },
     { id: 'deepseek/deepseek-coder',                   tier: 'mid',       coding: true,  vision: false, cost: 1 },
@@ -1149,18 +1159,26 @@
       const extra = m.vision ? '·vision' : '';
       return '- ' + m.id + ' ' + tag + (extra ? ' ' + extra : '');
     }).join('\n');
-    return 'Ты лёгкий маршрутизатор на deepseek-chat. Реши, что делать с запросом.\n'
-      + 'Правила:\n'
-      + '• "direct" используй ТОЛЬКО для тривиальных Q&A (приветствия, перевод одной фразы, факт-вопрос).\n'
-      + '• Если пользователь просит СОЗДАТЬ, ИЗМЕНИТЬ, ОТЛАДИТЬ код/UI/файл, или задача содержит картинку (vision) — ОБЯЗАТЕЛЬНО delegate/multi, не direct.\n'
-      + '• Если задача про код/UI/дебаг/архитектуру — выбирай модель с меткой coding.\n'
-      + '• Если задача СОДЕРЖИТ изображение (vision) — выбирай модель с меткой vision.\n'
-      + 'Пользователь обычно разрабатывает современные приложения (код, UI, дебаг, архитектура). По умолчанию выбирай delegate или multi.\n'
-      + 'Действия — верни ТОЛЬКО один JSON-объект (без prose, без тройных бэктиков):\n'
-      + (mode === 'multi'
-        ? '1) {"action":"direct","answer":"<короткий ответ>"} — тривиальный Q&A.\n2) {"action":"multi","models":["<id>","<id>"]} — сложная задача (архитектура, многошаговый код, рассуждения): выбери 2–3 id.\n'
-        : '1) {"action":"direct","answer":"<короткий ответ>"} — тривиальный Q&A.\n2) {"action":"delegate","model":"<id>"} — задача с работой (код, UI, файл, vision): один id.\n')
-      + 'Список доступных id:\n' + list;
+    return [
+      'Ты лёгкий маршрутизатор (deepseek-chat). Реши, что делать с запросом пользователя.',
+      '',
+      'Правила:',
+      '- "direct" ТОЛЬКО для тривиального Q&A: приветствие, перевод одной фразы, математика в одно действие, факт.',
+      '- Любая задача про СОЗДАТЬ / ИЗМЕНИТЬ / УДАЛИТЬ / ОТЛАДИТЬ код/UI/файл/страницу — ОБЯЗАТЕЛЬНО delegate или multi.',
+      '- Если в задаче картинка (vision) — выбирай модель с меткой vision (по умолчанию самую сильную).',
+      '- Если задача про код/UI/архитектуру — выбирай модель с меткой coding.',
+      '',
+      'ВАЖНО: пользователь разрабатывает современные приложения. По умолчанию выбирай delegate или multi — direct для таких задач НЕДОПУСТИМ.',
+      '',
+      mode === 'multi'
+        ? 'Верни ОДИН JSON-объект: {"action":"multi","models":["<id>","<id>","<id>"]} — выбери 2–3 id (один с coding, один с vision если есть картинка).'
+        : 'Верни ОДИН JSON-объект: {"action":"delegate","model":"<id>"} — выбери id с coding/vision под задачу.',
+      '',
+      'Без prose. Без тройных бэктиков. Без пояснений.',
+      '',
+      'Список доступных id:',
+      list
+    ].join('\n');
   }
 
   async function callOpenAI(model, messages) {
@@ -1290,6 +1308,22 @@
         onStep && onStep('Делегат ' + id + ': ' + r.error);
         return { text: '', error: id + ': ' + r.error, model: id };
       }
+      // Retry-once: если задача про код, а делегат вернул prose без блоков кода,
+      // пере-спрашиваем его с жёстким требованием вернуть код.
+      const codeImplied = looksLikeCodeTask(content);
+      const hasCodeBlock = /```[\s\S]+?(```|$)/.test(r.text) || /<!--\s*file:|\/\/\s*file:|<!--\s*file\s*-->/.test(r.text)
+                        || /^<!doctype\s+html/i.test(r.text.trim()) || /^<html\b/i.test(r.text.trim());
+      if (codeImplied && !hasCodeBlock) {
+        onStep && onStep('Делегат ' + id + ' ответил без кода — повтор с требованием кода…');
+        try {
+          const forcedMsgs = [
+            ...delegateMessages(id),
+            { role: 'user', content: 'ПРЕДЫДУЩИЙ ОТВЕТ НЕ СОДЕРЖАЛ КОДА — только prose «опишу что сделаю». Повтори ответ строго в формате: полный блок кода (или несколько) в тройных бэктиках, каждый с пометкой `// file: path` или `<!-- file: path -->` в первой строке, и одно предложение итога. Без планов, без перечислений, без "Главные изменения:". Если ничего не нужно менять — напиши код, который ничего не меняет.' }
+          ];
+          const r2 = await callOpenAI(id, forcedMsgs);
+          if (!r2.error && r2.text) r = r2;
+        } catch (e) { onStep && onStep('Повторный запрос делегата упал: ' + e.message); }
+      }
       return { text: r.text, model: id };
     }
     if (decision.action === 'multi') {
@@ -1331,6 +1365,26 @@
           }
         }
         if (allChanges.length) await applyCodeChanges(allChanges);
+        // Retry-once: задача про код, но ни один эксперт не выдал маркеров файла.
+        // Шлём одну повторную попытку самой сильной coding/vision-модели с жёстким требованием.
+        if (looksLikeCodeTask(content) && !allChanges.length) {
+          onStep && onStep('Ни один эксперт не выдал код — повтор одной сильной модели с требованием…');
+          const forced = ORCHESTRATOR_MODELS.find(m => m.coding && m.vision) || ORCHESTRATOR_MODELS.find(m => m.coding) || ORCHESTRATOR_MODELS[0];
+          try {
+            const fr = await callOpenAI(forced.id, [
+              ...delegateMessages(forced.id),
+              { role: 'user', content: 'ПРЕДЫДУЩИЕ ОТВЕТЫ НЕ СОДЕРЖАЛИ КОДА. Повтори ответ строго в формате: полный блок кода в тройных бэктиках с пометкой `// file: path` или `<!-- file: path -->` в первой строке. Код полностью: HTML+CSS+JS в одном или двух блоках. Минимум prose — одна итоговая строка в конце.' }
+            ]);
+            if (!fr.error && fr.text) {
+              const fch = extractCodeChanges(fr.text);
+              if (fch.length) {
+                onStep && onStep('Записываю файлы из повтора: ' + fch.map(c => c.path).join(', '));
+                await applyCodeChanges(fch);
+                ok.push({ id: forced.id, text: fr.text });
+              }
+            }
+          } catch (e) { onStep && onStep('Повтор multi упал: ' + e.message); }
+        }
       } catch (e) {
         console.warn('[orchestrator] pre-write failed:', e);
       }
@@ -1769,7 +1823,7 @@
       'anthropic/claude-sonnet-4.6-thinking-high': 'код, UI/архитектура, vision, длинный контекст',
       'anthropic/claude-sonnet-4.5':            'код, UI/архитектура, vision, широкий стек',
       'anthropic/claude-sonnet-4':              'код, длинный контекст, vision',
-      'anthropic/claude-opus-4.5':              'премиум-агент, сложный код, vision, рассуждения',
+      'anthropic/claude-opus-4.6':              'премиум-агент, сложный код, vision, рассуждения',
       'anthropic/claude-3-haiku':               'скорость, vision, короткие ответы',
       'openai/gpt-5-mini':                      'vision, multimodal, быстрые ответы'
     };
