@@ -923,6 +923,7 @@
       const data = await res.json().catch(() => ({}));
       if (data.applied && data.applied.length) {
         reloadPreview();
+        redirectPreviewToHtml(data.applied);
         invalidateWorkspaceSnapshot();
         loadWorkspaceFiles();
         // Best-effort backup to Supabase. Failure here never blocks the user.
@@ -958,8 +959,29 @@
   }
 
   function reloadPreview() {
-    const src = previewFrame.src || '/preview/';
-    previewFrame.src = src;
+    // Без cache-busting установка src=src часто no-op — браузер считает, что
+    // страница не менялась, и пользователь видит старую превью даже после
+    // applyCodeChanges. Цепляем ?v=Date.now(), чтобы iframe гарантированно
+    // перечитал файл с диска.
+    const cur = previewFrame.getAttribute('src') || previewFrame.src || '/preview/index.html';
+    const base = cur.split('?')[0] || '/preview/index.html';
+    previewFrame.src = base + '?v=' + Date.now();
+  }
+
+  // Если среди только что записанных файлов есть *.html — редиректим iframe
+  // на самый подходящий. previewStatic инициализируется один раз при загрузке
+  // страницы и без нашего участия останется на старом index.html; пользователь
+  // тогда справедливо пишет «превью не меняется», даже если агент успешно
+  // записал новый login.html / ai.html / index.html.
+  function redirectPreviewToHtml(applied) {
+    if (!previewFrame) return;
+    if (!Array.isArray(applied) || !applied.length) return;
+    const htmls = applied.filter(p => /\.html?$/i.test(p));
+    if (!htmls.length) return;
+    const target = htmls.find(p => /(^|\/)index\.html?$/i.test(p))
+                || htmls.find(p => /(^|\/)login\.html?$/i.test(p))
+                || htmls[0];
+    previewFrame.src = '/preview/' + String(target).replace(/^\/+/, '') + '?v=' + Date.now();
   }
 
   // ── Messages ──────────────────────────────────────────
@@ -1006,6 +1028,7 @@
       <div class="msg-agent-status">
         <div class="status-icon"><div class="spinner"></div></div>
         <span class="status-text">Думаю…</span>
+        <div class="acti-live"></div>
         ${modelName ? `<span class="model-tag">${modelName}</span>` : ''}
       </div>
       <div class="load-bar"><div class="load-bar-fill"></div></div>`;
@@ -1013,6 +1036,8 @@
     scrollBottom();
     setLogoLoading(true);
     document.getElementById('modelLoader')?.classList.add('show');
+    // Подключаем activity tracker к этой пузырьке.
+    activityTracker.setContainer(div.querySelector('.acti-live'));
     return div;
   }
 
@@ -1046,6 +1071,83 @@
       </div>`;
     scrollBottom();
   }
+
+
+  // ╔══ Claude.ai-style live activity timeline ════════════════════════════════╗
+  // Пока агент работает, в верхней части его пузыря видно не только текущий
+  // status, но и растущий список действий (Маршрутизация → Делегирование →
+  // Vision → Синтез → …). После завершения список «схлопывается» в
+  // аккордеон «N действий» — копия визуала Claude's «17 actions». Нажал —
+  // развернул, увидел конкретные шаги.
+  const activityTracker = {
+    container: null,         // .acti-live внутри текущей thinking-пузырька
+    steps: [],               // [{kind,icon,label}, ...]
+    reset() { this.container = null; this.steps = []; },
+    setContainer(el) { this.container = el; },
+    push(status) {
+      if (!this.container) return;
+      this.steps.push(classifyStep(status));
+      this.container.innerHTML = activityTimelineHTML(this.steps, { live: true });
+    },
+    finish() {
+      if (!this.container) return;
+      this.container.innerHTML = activityTimelineHTML(this.steps, { live: false });
+    }
+  };
+
+  function classifyStep(status) {
+    if (!status) return { kind:'idle', icon:'·', label:'Работаю' };
+    const m = [
+      [/Маршрутизация \\([^)]+\\)|Маршрутизатор/i, { kind:'route',    icon:'>_', label:'Маршрутизация задачи' }],
+      [/Делегирование\\s*→/i,                              { kind:'delegate', icon:'↗',  label:'Делегирование к специалисту' }],
+      [/Модель .*недоступна|Повтор/i,                        { kind:'retry',    icon:'⟳',   label:'Повторная попытка на другой модели' }],
+      [/Записываю файлы из ([^\\s:]+)/i,                     function(s){ return { kind:'write', icon:'✎', label:'Записываю '+s.match(/Записываю файлы из ([^\\s:]+)/)[1] }; }],
+      [/Синтез финального ответа/i,                          { kind:'synth',    icon:'⊕',   label:'Синтез финального ответа' }],
+      [/Параллельный опрос/i,                                { kind:'parallel', icon:'∥',   label:'Параллельный опрос моделей' }],
+      [/Замена делегата на vision/i,                         { kind:'vision',   icon:'◉',   label:'Vision-анализ вложений' }],
+      [/Прямой ответ/i,                                      { kind:'answer',   icon:'✦',   label:'Прямой ответ маршрутизатора' }],
+      [/Делегат.*ошибка/i,                      { kind:'error',    icon:'!',   label:'Ошибка модели-эксперта' }]
+    ];
+    for (const [re, def] of m) {
+      if (re.test(status)) {
+        return typeof def === 'function' ? def(status) : { ...def };
+      }
+    }
+    return { kind:'work', icon:'>_', label: status.length > 60 ? status.slice(0,57)+'…' : status };
+  }
+
+  function activityTimelineHTML(steps, opts) {
+    if (!steps || !steps.length) return '';
+    const compact = steps.slice(-6).map(s => 
+      `<span class="acti-icon acti-${s.kind}" title="${escHtml(s.label)}">${s.icon}</span>`).join('');
+    const items = steps.map(s => 
+      `<li class="acti-step"><span class="acti-icon acti-${s.kind}">${s.icon}</span><span class="acti-step-label">${escHtml(s.label)}</span></li>`).join('');
+    if (opts && opts.live) {
+      return `
+        <div class="acti-live-row">
+          <span class="acti-dots"><span></span><span></span><span></span></span>
+          <span class="acti-live-icons">${compact}</span>
+          <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
+        </div>`;
+    }
+    return `
+      <details class="acti-timeline">
+        <summary class="acti-summary">
+          <span class="acti-summary-icons">${compact}</span>
+          <span class="acti-summary-count">${steps.length} ${ruPlural(steps.length, 'действие', 'действия', 'действий')}</span>
+          <span class="acti-show-toggle">Show more</span>
+        </summary>
+        <ol class="acti-steps">${items}</ol>
+      </details>`;
+  }
+
+  function ruPlural(n, one, few, many) {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+    return many;
+  }
+  // ╚════════════════════════════════════════════════════════════════════════╝
 
   function appendAgentMsg(content, worked, model, error) {
     const div = document.createElement('div');
@@ -1670,6 +1772,7 @@
               if (labelEl) labelEl.textContent = status;
               updateThinkingModel(thinkEl, decoration + ' — ' + status);
               updateOrchestratorActiveModel(status);
+              activityTracker.push(status);
             }, attachments);
             if (reply && reply.error) {
               // Показываем ошибку как содержимое пузыря — иначе выглядит как «пустой ответ».
@@ -1984,6 +2087,7 @@
         <span>Подтверждение присутствия</span>
         ${modelName ? `<span class="model-tag">${modelName}</span>` : ''}
       </div>
+      <div class="acti-final">${activityTracker.steps.length ? activityTimelineHTML(activityTracker.steps, { live: false }) : ''}</div>
       <div class="msg-agent-bubble">${renderMarkdown(content)}</div>
       <div class="worked-label">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -1993,6 +2097,7 @@
         Работал ${worked} сек
       </div>`;
     scrollBottom();
+    activityTracker.reset();
   }
 
   async function loadHistory() {

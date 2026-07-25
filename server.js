@@ -655,6 +655,14 @@ app.post('/api/apply-code', async (req, res) => {
   for (const ch of changes) {
     const safePath = sanitizePath(ch.path);
     if (!safePath) { errors.push({ path: ch.path, error: 'Некорректный путь' }); continue; }
+    // Серверный backstop: путь должен существовать в реальном листинге.
+    let realListing = null;
+    try { realListing = await listWorkspaceFiles(WORKSPACE_DIR); } catch {}
+    const realSet = new Set(realListing || []);
+    if (realSet.size && !realSet.has(safePath)) {
+      errors.push({ path: ch.path, error: 'Путь не существует в реальном workspace — отброшено сервером' });
+      continue;
+    }
     try {
       const fullPath = path.join(WORKSPACE_DIR, safePath);
       await fs.mkdir(path.dirname(fullPath), { recursive: true });
