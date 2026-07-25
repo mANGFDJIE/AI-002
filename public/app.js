@@ -11,7 +11,7 @@
   const tabs = document.querySelectorAll('.tab[data-tab]');
   const toolsView = document.getElementById('toolsView');
   const previewView = document.getElementById('previewView');
-  const previewFrame = document.getElementById('previewFrame');
+  let previewFrame = document.getElementById('previewFrame');
   const previewChanges = document.getElementById('previewChanges');
   const previewStatus = document.getElementById('previewStatus');
   const previewConsole = document.getElementById('previewConsole');
