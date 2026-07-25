@@ -1474,7 +1474,8 @@
               const fch = extractCodeChanges(fr.text);
               if (fch.length) {
                 onStep && onStep('Записываю файлы из повтора: ' + fch.map(c => c.path).join(', '));
-                await applyCodeChanges(fch);
+                const safe = await sanitizeChanges(fch, onStep);
+                if (safe.length) await applyCodeChanges(safe);
                 ok.push({ id: forced.id, text: fr.text });
               }
             }
