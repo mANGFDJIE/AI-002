@@ -189,19 +189,28 @@
       //    Это самые сильные модели в каталоге (reasoning + крупные).
       if (isVseGpt) {
         const featured = [
-          // ── Бесплатные / сверхдешёвые (работают с нулевым балансом) ──
-          { id: 'perplexity/latest-large-online',             label: 'Perplexity Large',    desc: '🔥 БЕСПЛАТНО — GPT-4 class, веб-поиск, 127K контекст' },
-          { id: 'openai/gpt-oss-120b',                       label: 'GPT-OSS 120B',        desc: '💰 ~0.08/1K — открытая 120B модель, отличный код, 128K' },
-          { id: 'google/gemini-flash-1.5',                    label: 'Gemini Flash 1.5',   desc: '💰 ~0.07/1K — Google, 1M контекст, vision' },
-          { id: 'qwen/qwen-2.5-coder-32b-instruct',          label: 'Qwen Coder 32B',     desc: '💰 ~0.10/1K — заточен под код, 128K контекст' },
-          { id: 'meta-llama/llama-4-scout',                   label: 'Llama 4 Scout',      desc: '💰 ~0.10/1K — Meta 109B MoE, 328K контекст' },
-          { id: 'deepseek/deepseek-coder',                   label: 'DeepSeek Coder',      desc: '💰 ~0.09/1K — экономичный кодер, длинный контекст' },
-          { id: 'openai/gpt-4o-mini',                        label: 'GPT-4o mini',         desc: '💰 ~0.10/1K — быстрый, vision, 128K контекст' },
+          // 0₽ · бесплатно (perplexity)
+          { id: 'perplexity/latest-large-online',             label: 'Perplexity Large',  desc: '🔥 0₽ — GPT-4 class, веб-поиск, 127K' },
+          { id: 'perplexity/latest-small-online',             label: 'Perplexity Small',  desc: '🔥 0₽ — быстрый, веб-поиск, 32K' },
+          // ~0.05–0.08/1K · сверхдешёвые
+          { id: 'qwen/qwen-turbo-2024-11-01',                 label: 'Qwen Turbo',        desc: '💰 0.05/1K — 1M контекст! tools, быстрый' },
+          { id: 'google/gemini-flash-1.5',                    label: 'Gemini Flash 1.5',  desc: '💰 0.07/1K — 1M контекст, vision' },
+          { id: 'openai/gpt-oss-20b',                         label: 'GPT-OSS 20B',       desc: '💰 0.07/1K — открытая 20B, tools, быстрый' },
+          { id: 'openai/gpt-4.1-nano',                        label: 'GPT-4.1 Nano',      desc: '💰 0.08/1K — 1M контекст, tools+structured' },
+          { id: 'google/gemini-2.5-flash-lite',               label: 'Gemini 2.5 Lite',   desc: '💰 0.08/1K — 1M контекст, tools+structured' },
+          { id: 'openai/gpt-oss-120b',                        label: 'GPT-OSS 120B',      desc: '💰 0.08/1K — 120B, отличный код, 128K' },
+          // ~0.09–0.15/1K · бюджетные рабочие лошадки
+          { id: 'deepseek/deepseek-coder',                    label: 'DeepSeek Coder',    desc: '💰 0.09/1K — кодер, длинный контекст' },
+          { id: 'openai/gpt-4o-mini',                         label: 'GPT-4o mini',       desc: '💰 0.10/1K — vision, быстрый, 128K' },
+          { id: 'qwen/qwen-2.5-coder-32b-instruct',           label: 'Qwen Coder 32B',    desc: '💰 0.10/1K — заточен под код, 128K' },
+          { id: 'meta-llama/llama-4-scout',                   label: 'Llama 4 Scout',     desc: '💰 0.10/1K — 109B MoE, 328K контекст' },
+          { id: 'deepseek/deepseek-chat',                     label: 'DeepSeek Chat',     desc: '💰 0.09/1K — 1M контекст, tools' },
         ];
         featured.forEach((f, i) => {
+          const isFree = i < 2; // первые 2 — бесплатные perplexity
           modelPresets[`featured-${i}`] = {
-            name: (i < 5 ? '🆓 ' : '💰 ') + f.label,
-            label: (i < 5 ? '🆓 ' : '💰 ') + f.label,
+            name: (isFree ? '🆓 ' : '💰 ') + f.label,
+            label: (isFree ? '🆓 ' : '💰 ') + f.label,
             color: 'economy',
             desc: f.desc,
             openai: true,
@@ -1419,14 +1428,22 @@
   // Ordered by cost (ascending) — router prefers cheapest model that can handle the task.
   // Falls back up the list on budget/availability errors (isBudgetOrModelError).
   const ORCHESTRATOR_MODELS = [
-    // Бесплатные / сверхдешёвые
+    // 0₽
     { id: 'perplexity/latest-large-online',             tier: 'mid',       coding: true,  vision: false, cost: 0  },
-    { id: 'openai/gpt-oss-120b',                       tier: 'mid',       coding: true,  vision: false, cost: 1  },
+    { id: 'perplexity/latest-small-online',             tier: 'light',     coding: false, vision: false, cost: 0  },
+    // ~0.05–0.08/1K
+    { id: 'qwen/qwen-turbo-2024-11-01',                 tier: 'mid',       coding: true,  vision: false, cost: 1  },
     { id: 'google/gemini-flash-1.5',                    tier: 'mid',       coding: true,  vision: true,  cost: 2  },
-    { id: 'deepseek/deepseek-coder',                   tier: 'mid',       coding: true,  vision: false, cost: 3  },
-    { id: 'openai/gpt-4o-mini',                        tier: 'mid',       coding: true,  vision: true,  cost: 4  },
-    { id: 'qwen/qwen-2.5-coder-32b-instruct',          tier: 'mid',       coding: true,  vision: false, cost: 5  },
-    { id: 'meta-llama/llama-4-scout',                   tier: 'mid',       coding: true,  vision: false, cost: 6  },
+    { id: 'openai/gpt-oss-20b',                         tier: 'mid',       coding: true,  vision: false, cost: 3  },
+    { id: 'openai/gpt-4.1-nano',                        tier: 'mid',       coding: true,  vision: false, cost: 4  },
+    { id: 'google/gemini-2.5-flash-lite',               tier: 'mid',       coding: true,  vision: false, cost: 4  },
+    { id: 'openai/gpt-oss-120b',                        tier: 'mid',       coding: true,  vision: false, cost: 5  },
+    // ~0.09–0.15/1K
+    { id: 'deepseek/deepseek-coder',                   tier: 'mid',       coding: true,  vision: false, cost: 6  },
+    { id: 'openai/gpt-4o-mini',                        tier: 'mid',       coding: true,  vision: true,  cost: 7  },
+    { id: 'qwen/qwen-2.5-coder-32b-instruct',          tier: 'mid',       coding: true,  vision: false, cost: 8  },
+    { id: 'meta-llama/llama-4-scout',                   tier: 'mid',       coding: true,  vision: false, cost: 9  },
+    { id: 'deepseek/deepseek-chat',                     tier: 'mid',       coding: true,  vision: false, cost: 9  },
   ];
 
   function orchestratorPrompt(mode) {
@@ -1444,10 +1461,10 @@
       '- "direct" ТОЛЬКО для чистого Q&A без кода: приветствие, перевод одной фразы, математика в одно действие, общий факт. Поле answer содержит КРАТКИЙ ответ.',
       '- Любая задача про СОЗДАТЬ / ИЗМЕНИТЬ / УДАЛИТЬ / ОТЛАДИТЬ / ОБЪЯСНИТЬ код/UI/файл/страницу — ОБЯЗАТЕЛЬНО delegate или multi.',
       '- Если в задаче картинка (vision) — выбирай модель с меткой vision (по умолчанию сильнейшую).',
-      '- Для React/Next.js/TypeScript/Tailwind — предпочитай gpt-oss-120b или gemini-flash-1.5 (с vision).',
-      '- Для алгоритмов, math, рассуждений — используй gpt-oss-120b или qwen-coder-32b.',
-      '- Для быстрых/мелких задач (один компонент, мелкий фикс) — deepseek-coder или gpt-4o-mini.',
-      '- При нулевом балансе — perplexity/latest-large-online (БЕСПЛАТНО, GPT-4 class, веб-поиск).',
+      '- Для React/Next.js/TypeScript/Tailwind — предпочитай gpt-oss-120b, gemini-flash-1.5 или gpt-4.1-nano (1M ctx, structured output).',
+      '- Для алгоритмов, math — qwen-turbo (0.05/1K!) или qwen-coder-32b.',
+      '- Для быстрых/мелких задач — deepseek-coder, gpt-oss-20b или gpt-4o-mini.',
+      '- При нулевом балансе — perplexity/latest-large-online (0₽, GPT-4 class, веб-поиск) или perplexity/latest-small-online (0₽, быстрый).',
       '- Если задача содержит «[🎯 ЦЕЛЬ ОПЕРАЦИИ]» или «⌖ <tag>» — это указатель на конкретный файл. Игнорировать нельзя.',
       '',
       'ВАЖНО: платформа заточена под разработку современных веб-приложений (React, Next.js, лендинги, дашборды). По умолчанию delegate или multi. Direct — только для чистого Q&A без кода.',
@@ -2160,21 +2177,33 @@
     if (!lab || !status) return;
     const PRETTY = {
       'perplexity/latest-large-online':              'Perplexity Large',
-      'openai/gpt-oss-120b':                        'GPT-OSS 120B',
+      'perplexity/latest-small-online':              'Perplexity Small',
+      'qwen/qwen-turbo-2024-11-01':                 'Qwen Turbo',
       'google/gemini-flash-1.5':                    'Gemini Flash 1.5',
+      'openai/gpt-oss-20b':                         'GPT-OSS 20B',
+      'openai/gpt-4.1-nano':                        'GPT-4.1 Nano',
+      'google/gemini-2.5-flash-lite':               'Gemini 2.5 Lite',
+      'openai/gpt-oss-120b':                        'GPT-OSS 120B',
       'deepseek/deepseek-coder':                   'DeepSeek Coder',
       'openai/gpt-4o-mini':                        'GPT-4o mini',
       'qwen/qwen-2.5-coder-32b-instruct':          'Qwen Coder 32B',
       'meta-llama/llama-4-scout':                   'Llama 4 Scout',
+      'deepseek/deepseek-chat':                     'DeepSeek Chat',
     };
     const STRENGTHS = {
-      'perplexity/latest-large-online':              '🔥 БЕСПЛАТНО — GPT-4 class, веб-поиск, 127K',
-      'openai/gpt-oss-120b':                        '120B открытая, отличный код, 128K',
+      'perplexity/latest-large-online':              '🔥 0₽ — GPT-4 class, веб-поиск, 127K',
+      'perplexity/latest-small-online':              '🔥 0₽ — быстрый, веб-поиск, 32K',
+      'qwen/qwen-turbo-2024-11-01':                 '0.05/1K — 1M контекст, tools',
       'google/gemini-flash-1.5':                    '1M контекст, vision, Google',
-      'deepseek/deepseek-coder':                   'код, рефакторинг, отладка, длинный контекст',
-      'openai/gpt-4o-mini':                        'быстрый, vision, 128K контекст',
+      'openai/gpt-oss-20b':                         'открытая 20B, tools, быстрый',
+      'openai/gpt-4.1-nano':                        '1M контекст, tools+structured',
+      'google/gemini-2.5-flash-lite':               '1M контекст, tools+structured',
+      'openai/gpt-oss-120b':                        '120B открытая, отличный код',
+      'deepseek/deepseek-coder':                   'код, рефакторинг, длинный контекст',
+      'openai/gpt-4o-mini':                        'быстрый, vision, 128K',
       'qwen/qwen-2.5-coder-32b-instruct':          'код, 128K, выделенный кодер',
       'meta-llama/llama-4-scout':                   '109B MoE, 328K контекст',
+      'deepseek/deepseek-chat':                     '1M контекст, tools',
     };
 
     const swap = /vision-модель:\s*[^\s··]+\s*→\s*([^\s·]+(?:\.[\w/-]+)?)/i.exec(status);
