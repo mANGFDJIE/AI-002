@@ -1,7 +1,201 @@
-      <h1 class="glitch">КИБЕРПАНК</h1>
-      <div class="sub">// 2084 · НОВЫЙ РАССВЕТ //</div>
-      <div class="neon-line"></div>
-      <p class="tagline">
-        Войди в сеть будущего...
-      </p>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вход — LOFT</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f5efe6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' fill-opacity='0.08'%3E%3Cpath d='M0 0h60v60H0z'/%3E%3Crect x='15' y='15' width='30' height='30' rx='4' stroke='%23b8a99a' stroke-width='1.5'/%3E%3C/g%3E%3C/svg%3E");
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .loft-card {
+      background: #fcf9f5;
+      border: 1px solid #ddd2c5;
+      border-radius: 20px;
+      padding: 48px 40px 40px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: 0 12px 32px -8px rgba(0,0,0,0.12);
+      backdrop-filter: blur(2px);
+      position: relative;
+    }
+    .loft-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 6px;
+      background: linear-gradient(90deg, #c7a17a, #d6b48b 50%, #c7a17a);
+      border-radius: 20px 20px 0 0;
+    }
+    .loft-card h1 {
+      font-size: 26px;
+      font-weight: 500;
+      color: #2c2420;
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+    }
+    .loft-card .sub {
+      color: #8a7e74;
+      font-size: 14px;
+      margin-bottom: 32px;
+      font-weight: 400;
+    }
+    .form-group {
+      margin-bottom: 22px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #5f534a;
+      margin-bottom: 6px;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 12px 16px;
+      background: #fff;
+      border: 1px solid #dcd3ca;
+      border-radius: 12px;
+      color: #1f1a16;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .form-group input:focus {
+      border-color: #c7a17a;
+      box-shadow: 0 0 0 3px rgba(199,161,122,0.15);
+    }
+    .form-group input::placeholder {
+      color: #b0a398;
+    }
+    .btn-loft {
+      width: 100%;
+      padding: 14px;
+      background: #3c2f28;
+      border: none;
+      border-radius: 12px;
+      color: #fcf9f5;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      margin-top: 12px;
+      letter-spacing: 0.01em;
+    }
+    .btn-loft:hover {
+      background: #57473d;
+    }
+    .btn-loft:active {
+      transform: scale(0.98);
+    }
+    .message {
+      margin-top: 20px;
+      text-align: center;
+      font-size: 13px;
+      min-height: 22px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      background: transparent;
+    }
+    .message.error {
+      background: #fce8e4;
+      color: #a53d2b;
+    }
+    .message.success {
+      background: #e4f0e0;
+      color: #3a6b3f;
+    }
+    .footer-link {
+      text-align: center;
+      margin-top: 24px;
+      font-size: 13px;
+      color: #8a7e74;
+    }
+    .footer-link a {
+      color: #7a6a5c;
+      text-decoration: none;
+      border-bottom: 1px dotted #c7b7ab;
+      transition: color 0.2s;
+    }
+    .footer-link a:hover {
+      color: #3c2f28;
+      border-bottom-color: #3c2f28;
+    }
+    /* optional accent ornament */
+    .ornament {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+    .ornament span {
+      width: 32px;
+      height: 2px;
+      background: #d6c8bc;
+      border-radius: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="loft-card">
+    <div class="ornament">
+      <span></span><span></span><span></span>
     </div>
+    <h1>Вход</h1>
+    <p class="sub">Добро пожаловать в лофт</p>
+
+    <form id="loftForm">
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="your@email.com" required autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label for="password">Пароль</label>
+        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn-loft">Войти</button>
+    </form>
+
+    <div id="message" class="message"></div>
+
+    <div class="footer-link">
+      <a href="#">Забыли пароль?</a>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('loftForm');
+    const msg = document.getElementById('message');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value.trim();
+
+      if (!email || !password) {
+        msg.className = 'message error';
+        msg.textContent = '⚠️ Заполните оба поля';
+        return;
+      }
+
+      msg.className = 'message success';
+      msg.textContent = `✅ С возвращением, ${email.split('@')[0]}! (демо)`;
+    });
+  </script>
+</body>
+</html>

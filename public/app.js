@@ -1341,7 +1341,9 @@
     const snippetBlocks = [];
     const attachments = allAttach.filter(a => {
       if (a && a.type === 'select-element' && a.html) {
-        snippetBlocks.push('[Selected ' + (a.name || ('<' + (a.tag || 'div') + '>')) + ']\n```html\n' + a.html + '\n```');
+        const tagLabel = a.name || ('<' + (a.tag || 'div') + '>');
+        const where = a.pagePath ? ' (из файла ' + a.pagePath + ')' : '';
+        snippetBlocks.push('[Selected ' + tagLabel + where + ']\n```html\n' + a.html + '\n```');
         return false;
       }
       return true;
@@ -2087,15 +2089,33 @@
       try {
         const tag = (detail && detail.tag || 'div').toLowerCase();
         const idAttr = detail && detail.id ? ` id="${String(detail.id).replace(/"/g, '&quot;')}"` : '';
-        const clsAttr = detail && detail.classes ? ` class="${String(detail.classes).replace(/"/g, '&quot;')}"` : '';
+        // Bridge-скрипт превью помечает hover-элемент классом `_sel-outline` /
+        // `glitch__sel-outline` — это подсветка, а не реальный класс страницы.
+        // Без фильтрации модель видит `<h1._sel-outline>` и считает, что такой
+        // класс существует в коде → отказывается редактировать («пользователь
+        // не указал файл»). Отфильтровываем и в label, и в передаваемом outerHTML.
+        const syntheticClass = /(?:^|_)glitch__?sel[-_]outline$|(?:^|_)sel[-_]outline$/i;
+        const filterClassList = (cls) => (cls || '').split(/\s+/)
+          .filter(c => c && !syntheticClass.test(c)).join(' ');
+        const realClasses = filterClassList(detail && detail.classes);
+        const clsAttr = realClasses ? ` class="${realClasses.replace(/"/g, '&quot;')}"` : '';
         const outer = (detail && detail.html) || '';
-        const safeOuter = outer.length > 12000 ? outer.slice(0, 12000) + '\n<!-- …обрезано… -->' : outer;
+        const cleanOuter = outer.replace(/\s+class="([^"]*)"/g, (m, cls) => {
+          const f = cls.split(/\s+/).filter(c => c && !syntheticClass.test(c)).join(' ');
+          return f ? ' class="' + f + '"' : '';
+        });
+        const safeOuter = cleanOuter.length > 12000 ? cleanOuter.slice(0, 12000) + '\n<!-- …обрезано… -->' : cleanOuter;
+        // Где был сделан выбор — это самая важная подсказка агенту: в каком
+        // файле редактировать (login.html, index.html, …) иначе он отвечает
+        // «пользователь не указал файл».
+        const previewFrame = document.getElementById('previewFrame');
+        const pagePath = (previewFrame && (previewFrame.getAttribute('src') || previewFrame.src)) || 'preview/';
         const snippet =
           `<!doctype html><meta charset="utf-8"><title>selection</title>` +
           `<style>body{font:13px/1.45 -apple-system,BlinkMacSystemFont,sans-serif;background:#0e1117;color:#c9d1d9;padding:18px}` +
           ` .sel-head{opacity:.6;font-size:11px;margin-bottom:10px}` +
           ` .sel-box{border:1px solid #2a313c;border-radius:8px;padding:10px;background:#161b22}</style>` +
-          `<div class="sel-head">Выбранный элемент: &lt;${tag}${idAttr}${clsAttr}&gt;</div>` +
+          `<div class="sel-head">Выбранный элемент: &lt;${tag}${idAttr}${clsAttr}&gt; <em style="opacity:.5">из ${escHtml(pagePath)}</em></div>` +
           `<div class="sel-box">${safeOuter}</div>`;
         const path = 'attached/' + Date.now().toString(36) + '-selection.html';
         const r = await fetch('/api/workspace/upload', {
@@ -2105,7 +2125,7 @@
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
         const idShort = detail && detail.id ? '#' + detail.id : '';
-        const clsShort = detail && detail.classes ? '.' + String(detail.classes).trim().split(/\s+/).join('.') : '';
+        const clsShort = realClasses ? '.' + realClasses.trim().split(/\s+/).join('.') : '';
         const label = '<' + tag + idShort + clsShort + '>';
         const size = new Blob([snippet]).size;
         const pending = (window.__getPendingAttachments && window.__getPendingAttachments()) || [];
@@ -2120,7 +2140,8 @@
           type: 'select-element',
           dataUrl: null,
           html: safeOuter,
-          tag, id: detail && detail.id || '', classes: detail && detail.classes || ''
+          tag, id: detail && detail.id || '', classes: realClasses,
+          pagePath
         });
         if (window.__renderAttachChips) window.__renderAttachChips();
         if (window.pushConsoleLine) window.pushConsoleLine('log', ['Выбран ' + label]);
