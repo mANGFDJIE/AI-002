@@ -41,20 +41,63 @@
   // (image_url parts), чтобы модель реально видела скриншоты в диалоге, а не
   // только имя файла в системном промпте. Берём максимум 4 картинки — иначе
   // токены раздуваются.
-  function attachImagesToUser(text, atts) {
+
+  // Канвасный downsample для больших картинок: ≥≈600 КБ base64 уменьшаем до
+  // maxDim=1024 JPEG quality=0.7 — типичный паст-скриншот падает с 200+ КБ
+  // до 30-60 КБ и перестаёт ломать контекстные окна VseGPT.
+  function downsampleImage(dataUrl, maxDim, quality) {
+    return new Promise((resolve) => {
+      try {
+        const img = new Image();
+        const mime = /data:([^;]+);/i.exec(dataUrl);
+        const isPng = mime && /png/i.test(mime[1]);
+        img.onload = () => {
+          const big = Math.max(img.width, img.height);
+          const scale = Math.min(1, maxDim / (big || 1));
+          if (scale >= 1 && dataUrl.length < 700000) return resolve(dataUrl);
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          const ctx = cv.getContext('2d');
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, w, h);
+          const out = isPng ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', quality);
+          resolve(out);
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      } catch { resolve(dataUrl); }
+    });
+  }
+
+  async function attachImagesToUser(text, atts) {
     const imgs = (atts || []).filter(a => a && /^image\//i.test(a.type || '') && a.dataUrl).slice(0, 4);
     if (!imgs.length) return text;
     const parts = [];
     if (text) parts.push({ type: 'text', text });
-    for (const a of imgs) parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+    for (const a of imgs) {
+      let url = a.dataUrl;
+      if (url.length > 600000) {
+        url = await downsampleImage(url, 1024, 0.7);
+      }
+      if (url.length > 900000) {
+        // Даже после downsample картинка огромная — не пихаем её в контекст,
+        // только текстовое предупреждение для модели.
+        const name = a.name || a.path || 'image';
+        parts.push({ type: 'text', text: '[Изображение ' + name + ' не прикреплено: превышает контекстное окно модели]' });
+      } else {
+        parts.push({ type: 'image_url', image_url: { url } });
+      }
+    }
     return parts;
   }
 
   // Текст + images в multimodal form (или просто строка). Флаг wantImages
   // нужен, чтобы НЕ пихать image_url в модели без vision — DeepSeek/Claude
   // отвечают ошибкой 'unknown variant `image_url`, expected text'.
-  function userContentFor(text, atts, wantImages) {
-    return !!wantImages ? attachImagesToUser(text, atts) : (text || '');
+  async function userContentFor(text, atts, wantImages) {
+    return !!wantImages ? await attachImagesToUser(text, atts) : (text || '');
   }
 
   const colorMap = { economy: '#4ade80', standard: '#3b82f6', pro: '#a78bfa', auto: 'linear-gradient(135deg,#4ade80,#3b82f6,#a78bfa)' };
@@ -1129,20 +1172,29 @@
 
   function activityTimelineHTML(steps, opts) {
     if (!steps || !steps.length) return '';
-    // Возьмём последние 7 шагов — как у Claude в строке действий.
-    const compact = steps.slice(-7).map(s =>
+    const total = steps.length;
+    const visible = Math.min(total, 7);
+    const compact = steps.slice(-visible).map(s =>
       `<span class="acti-icon acti-${s.kind}" title="${escHtml(s.label)}">${s.icon}</span>`).join('');
+    const items = steps.map(s =>
+      `<li class="acti-step"><span class="acti-icon acti-${s.kind}">${s.icon}</span><span class="acti-step-label">${escHtml(s.label)}</span></li>`).join('');
     const isLive = !!(opts && opts.live);
-    // Одна строка = один блок. Во время работы — пульсирующие точки,
-    // после завершения — галочка. Никаких details/timeline в финальном состоянии,
-    // чтобы не дублировать визуальный шум.
-    return `<div class="acti-live-row${isLive ? '' : ' finished'}">
-      ${isLive
-        ? '<span class="acti-dots"><span></span><span></span><span></span></span><span class="acti-thinking">Working…</span>'
-        : '<span class="acti-tick">✓</span>'}
+    const countLabel = ruPlural(total, 'шаг', 'шага', 'шагов');
+    // Live-строка один-в-один с Claude:
+    // [↻] [иконки] … N шагов Working..
+    const liveRow = `<div class="acti-live-row${isLive ? '' : ' finished'}">
+      <span class="acti-pulse${isLive ? ' live' : ' done'}" aria-hidden="true">${isLive ? '\u21BB' : '\u2713'}</span>
       <span class="acti-live-icons">${compact}</span>
-      <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
+      ${total > visible ? '<span class="acti-more" title="раскройте ниже, чтобы увидеть все">…</span>' : ''}
+      <span class="acti-live-count">${total} ${countLabel}</span>
+      ${isLive ? '<span class="acti-thinking">Working<span class="acti-dots"><span>.</span><span>.</span><span>.</span></span></span>' : ''}
     </div>`;
+    // Expand-блок «как у тебя» — кликабельная свёрнутая сводка «Показать N шагов».
+    const details = `<details class="acti-details">
+      <summary class="acti-summary">Показать ${total} ${countLabel} <span class="acti-summary-arrow">▾</span></summary>
+      <ol class="acti-steps">${items}</ol>
+    </details>`;
+    return liveRow + details;
   }
 
   function ruPlural(n, one, few, many) {
@@ -1244,7 +1296,7 @@
     }
     return [
       { role: 'system', content: LLM_SYSTEM_PROMPT + '\n\n' + listingLine + '\n\n(Запрос делегирован (slim-режим, без полного workspace-контекста) модели ' + id + '.)' },
-      { role: 'user', content: userContentFor(baseContent, attachments, supportsVision) }
+      { role: 'user', content: await userContentFor(baseContent, attachments, supportsVision) }
     ];
   }
 
@@ -1398,13 +1450,13 @@
       onStep && onStep('Замена делегата на vision-модель: ' + id + ' → ' + alt.id);
       return alt.id;
     };
-    const delegateMessages = (id) => {
+    const delegateMessages = async (id) => {
       const realId = pickVision(id, true);
       const supportsVision = !!ORCHESTRATOR_MODELS.find(m => m.id === realId)?.vision;
       return [
         { role: 'system', content: LLM_SYSTEM_PROMPT + '\n\n(Запрос делегирован оркестратором модели ' + realId + '.)' },
         ...ctx,
-        { role: 'user', content: userContentFor(content, attachments, supportsVision) }
+        { role: 'user', content: await userContentFor(content, attachments, supportsVision) }
       ];
     };
     onStep && onStep('Маршрутизация (deepseek-coder)…');
@@ -1413,7 +1465,7 @@
     try {
       routerR = await callOpenAI(routerModel, [
         { role: 'system', content: orchestratorPrompt(mode) },
-        { role: 'user', content: userContentFor(content, attachments, false) }
+        { role: 'user', content: await userContentFor(content, attachments, false) }
       ]);
     } catch (err) {
       onStep && onStep('Маршрутизатор недоступен: ' + err.message);
@@ -1438,7 +1490,7 @@
       // в котором модель вместо конкретного действия пишет «не могу/не указано».
       // Сюда попадают: «Мы получили запрос», «Возможно, подразумевается», «Нет конкретного
       // описания», «Давайте уточним», «без дополнительной информации» и т.д.
-      const verboseLeak = /Мы видим|Из файлов видно|Нужно помнить|Привет студент|Давайте разберёмся|Я рассмотрю|Ниже представлено|Ниже приведён|Мы получили запрос|В сообщении нет|Нет конкретного|Нет описания|Возможно,?\s*подразумевается|Возможно,?\s*имелось в виду|подразумевается последний|Давайте уточним|без дополнительной информации|не могу выполнить|не удалось выполнить|Не удалось выполнить|нужно больше контекста|Мы должны|Скорее всего,?\s*для|Я предлагаю|Поэтому,?\s*нужно|Давайте я|Наша задача|Для этой задачи|Давайте (создам|сделаю|сверстаем)|привет студент/i.test(directText);
+      const verboseLeak = /Мы видим|Из файлов видно|Нужно помнить|Привет студент|Давайте разберёмся|Модель\s+\S+\s+недоступна|Повторная попытка на другой|Я рассмотрю|Ниже представлено|Ниже приведён|Мы получили запрос|В сообщении нет|Нет конкретного|Нет описания|Возможно,?\s*подразумевается|Возможно,?\s*имелось в виду|подразумевается последний|Давайте уточним|без дополнительной информации|не могу выполнить|не удалось выполнить|Не удалось выполнить|нужно больше контекста|Мы должны|Скорее всего,?\s*для|Я предлагаю|Поэтому,?\s*нужно|Давайте я|Наша задача|Для этой задачи|Давайте (создам|сделаю|сверстаем)|привет студент/i.test(directText);
       const hasCodeBlock = /```[\s\S]+?(```|$)/.test(directText) || /<!--\s*file:|\/\/\s*file:/.test(directText)
                         || /^<!doctype\s+html/i.test(directText.trim()) || /^<html\b/i.test(directText.trim());
       if (verboseLeak || (looksLikeCodeTask(content) && !hasCodeBlock)) {
@@ -1446,7 +1498,7 @@
         const firstStrong = ORCHESTRATOR_MODELS.find(m => m.coding) || ORCHESTRATOR_MODELS[0];
         const strongId = pickVision(firstStrong.id, true);
         try {
-          const r = await callOpenAI(strongId, delegateMessages(strongId));
+          const r = await callOpenAI(strongId, await delegateMessages(strongId));
           if (!r.error) {
             // тот же retry-once через coercion, чтобы получить код
             const codeImplied = looksLikeCodeTask(content);
@@ -1454,7 +1506,7 @@
             if (codeImplied && !rHasCb) {
               try {
                 const r2 = await callOpenAI(strongId, [
-                  ...delegateMessages(strongId),
+                  ...(await delegateMessages(strongId)),
                   { role: 'user', content: 'PREVIOUS ANSWER HAD NO CODE OR WAS FUZZY PROSE (variant: vezde/poluchili/net-konkretnogo/podrazumevaetsya). Repeat strictly: full code blocks inside triple backticks with "// file: path" or "<!-- file: path -->" on the first line. No thinking-out-loud prose. Only code + one final line. If the target file is unclear, pick the most likely HTML file from the workspace listing above and write its full content with the correct path.' }
                 ]);
                 if (!r2.error && r2.text) return { text: r2.text, model: strongId };
@@ -1477,7 +1529,7 @@
       }
       onStep && onStep('Делегирование → ' + id);
       let r;
-      try { r = await callOpenAI(id, delegateMessages(id)); }
+      try { r = await callOpenAI(id, await delegateMessages(id)); }
       catch (err) {
         onStep && onStep('Делегат ' + id + ' ошибка: ' + err.message);
         return { text: '', error: id + ': ' + err.message, model: id };
@@ -1493,7 +1545,7 @@
           for (const m of ORCHESTRATOR_MODELS) {
             if (tried.has(m.id)) continue;
             tried.add(m.id);
-            onStep && onStep('Модель ' + id + ' недоступна → пробую ' + m.id + ' (slim-контекст)');
+            onStep && onStep('Переход → ' + m.id);
             const supportsVision = !!m.vision;
             try {
               // Сначала slim — без workspace-контекста, чтобы не пухнуть выше
@@ -1519,7 +1571,7 @@
         onStep && onStep('Делегат ' + id + ' ответил без кода — повтор с требованием кода…');
         try {
           const forcedMsgs = [
-            ...delegateMessages(id),
+            ...(await delegateMessages(id)),
             { role: 'user', content: 'ПРЕДЫДУЩИЙ ОТВЕТ НЕ СОДЕРЖАЛ КОДА — только prose «опишу что сделаю». Повтори ответ строго в формате: полный блок кода (или несколько) в тройных бэктиках, каждый с пометкой `// file: path` или `<!-- file: path -->` в первой строке, и одно предложение итога. Без планов, без перечислений, без "Главные изменения:". Если ничего не нужно менять — напиши код, который ничего не меняет.' }
           ];
           const r2 = await callOpenAI(id, forcedMsgs);
@@ -1540,7 +1592,7 @@
       onStep && onStep('Параллельный опрос ' + ids.length + ' моделей…');
       const results = await Promise.all(ids.map(async id => {
         try {
-          const r = await callOpenAI(id, delegateMessages(id));
+          const r = await callOpenAI(id, await delegateMessages(id));
           if (r.error) return { id, error: r.error };
           return { id, text: r.text };
         } catch (err) {
@@ -1574,7 +1626,7 @@
           const forced = ORCHESTRATOR_MODELS.find(m => m.coding && m.vision) || ORCHESTRATOR_MODELS.find(m => m.coding) || ORCHESTRATOR_MODELS[0];
           try {
             const fr = await callOpenAI(forced.id, [
-              ...delegateMessages(forced.id),
+              ...(await delegateMessages(forced.id)),
               { role: 'user', content: 'ПРЕДЫДУЩИЕ ОТВЕТЫ НЕ СОДЕРЖАЛИ КОДА. Повтори ответ строго в формате: полный блок кода в тройных бэктиках с пометкой `// file: path` или `<!-- file: path -->` в первой строке. Код полностью: HTML+CSS+JS в одном или двух блоках. Минимум prose — одна итоговая строка в конце.' }
             ]);
             if (!fr.error && fr.text) {
@@ -1774,13 +1826,25 @@
           if (selectedPreset.router) {
             const reply = await runOrchestrator(content, selectedPreset.router, (status) => {
               if (labelEl) labelEl.textContent = status;
-              updateThinkingModel(thinkEl, decoration + ' — ' + status);
+              // «Переход → model-id» — рендерим только новую модель, без дубля
+              // с acti-step и/или телом.
+              const m = /^\s*Переход\s*→\s*([^\s..]+)/i.exec(status || '');
+              if (m) {
+                updateThinkingModel(thinkEl, m[1]);
+              } else {
+                updateThinkingModel(thinkEl, decoration + ' — ' + status);
+              }
               updateOrchestratorActiveModel(status);
               activityTracker.push(status);
             }, attachments);
             if (reply && reply.error) {
               // Показываем ошибку как содержимое пузыря — иначе выглядит как «пустой ответ».
-              full = '⚠️ ' + reply.error;
+              const ftxt = String(reply.error);
+              if (/doesn't allow input more than|input_too_long|context_length_exceeded|reduce length of your input/i.test(ftxt)) {
+                full = '⚠️ Контекст переполнен: выбранная модель не принимает такой объём входных данных.\n\nЧто делать: уменьшите размер прикреплённых картинок или переключитесь в шапке на модель `anthropic/claude-sonnet-4.5-1m` (расширенный контекст).';
+              } else {
+                full = '⚠️ ' + reply.error;
+              }
             } else {
               full = (reply && reply.text) || '';
             }
@@ -1801,13 +1865,13 @@
               messages: [
                 { role: 'system', content: LLM_SYSTEM_PROMPT },
                 ...contextMessages,
-                ...history.map((m, i, arr) => {
+                ...await Promise.all(history.map(async (m, i, arr) => {
                   const last = i === arr.length - 1 && m.role === 'user';
                   const content = (last && attachments.length)
-                    ? attachImagesToUser(m.content, attachments)
+                    ? await attachImagesToUser(m.content, attachments)
                     : m.content;
                   return { role: m.role, content };
-                })
+                }))
               ],
               max_tokens: 4096
             }),
@@ -2303,7 +2367,14 @@
     }
     async function uploadOne(file) {
       const path = stampPath(file.name);
-      const dataUrl = await fileToBase64(file);
+      const rawDataUrl = await fileToBase64(file);
+      const isImage = /^image\//i.test(file.type || '');
+      // Большие картинки сразу ресайзим, чтобы dataUrl не раздувал контекст LLM
+      // (см. attachImagesToUser) и не возвращал 216k-chars «input too long».
+      let dataUrl = rawDataUrl;
+      if (isImage && dataUrl.length > 600000) {
+        dataUrl = await downsampleImage(dataUrl, 1280, 0.75);
+      }
       const b64 = dataUrl.indexOf(',') >= 0 ? dataUrl.split(',')[1] : dataUrl;
       const r = await fetch('/api/workspace/upload', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2311,15 +2382,13 @@
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
-      const isImage = /^image\//i.test(file.type || '');
-      // dataUrl держим только для картинок — иначе base64 видео/pdf забивает память.
-      // Для текстовых/бинарных вложений покажем в чате иконку и имя (см. renderUserBubble).
       return {
         path: (j.path || path),
         size: file.size,
         name: file.name,
         type: file.type || '',
-        dataUrl: isImage ? dataUrl : null
+        dataUrl: isImage ? dataUrl : null,
+        resized: dataUrl.length < rawDataUrl.length
       };
     }
     function render() {
