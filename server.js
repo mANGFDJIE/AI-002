@@ -488,7 +488,7 @@ app.post('/api/chat/openai', (req, res) => {
     model: model || 'deepseek-chat',
     messages,
     stream: true,
-    max_tokens: max_tokens || 4096
+    max_tokens: max_tokens || 8192
   });
 
   const options = {
