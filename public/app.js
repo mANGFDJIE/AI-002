@@ -1331,11 +1331,15 @@
       // Если задача явно про код, а ответ маршрутизатора — verbose prose
       // ("Мы видим, что...", "Нужно помнить, о какой странице речь...") вместо
       // короткого ответа или блоков кода — это НЕ direct, прокинем в delegate.
-      const verboseLeak = /Мы видим|Из файлов видно|Нужно помнить|Привет студент|Давайте разберёмся|Я рассмотрю|Ниже представлено|Ниже приведён/i.test(directText);
+      // Расширенный список — ловим и 'verbose leak', и 'agent give-up'-режим,
+      // в котором модель вместо конкретного действия пишет «не могу/не указано».
+      // Сюда попадают: «Мы получили запрос», «Возможно, подразумевается», «Нет конкретного
+      // описания», «Давайте уточним», «без дополнительной информации» и т.д.
+      const verboseLeak = /Мы видим|Из файлов видно|Нужно помнить|Привет студент|Давайте разберёмся|Я рассмотрю|Ниже представлено|Ниже приведён|Мы получили запрос|В сообщении нет|Нет конкретного|Нет описания|Возможно,?\s*подразумевается|Возможно,?\s*имелось в виду|подразумевается последний|Давайте уточним|без дополнительной информации|не могу выполнить|не удалось выполнить|Не удалось выполнить|нужно больше контекста/i.test(directText);
       const hasCodeBlock = /```[\s\S]+?(```|$)/.test(directText) || /<!--\s*file:|\/\/\s*file:/.test(directText)
                         || /^<!doctype\s+html/i.test(directText.trim()) || /^<html\b/i.test(directText.trim());
-      if ((looksLikeCodeTask(content) && !hasCodeBlock) || verboseLeak) {
-        onStep && onStep('Маршрутизатор вернул prose вместо кода → делегирую сильной модели');
+      if (verboseLeak || (looksLikeCodeTask(content) && !hasCodeBlock)) {
+        onStep && onStep('Маршрутизатор вернул prose/give-up вместо кода → делегирую сильной модели');
         const firstStrong = ORCHESTRATOR_MODELS.find(m => m.coding) || ORCHESTRATOR_MODELS[0];
         const strongId = pickVision(firstStrong.id, true);
         try {
@@ -1348,7 +1352,7 @@
               try {
                 const r2 = await callOpenAI(strongId, [
                   ...delegateMessages(strongId),
-                  { role: 'user', content: 'ПРЕДЫДУЩИЙ ОТВЕТ НЕ СОДЕРЖАЛ КОДА. Повтори ответ строго: полные блоки кода в тройных бэктиках с пометкой `// file: path` или `<!-- file: path -->`. Никаких prose "Мы видим/Из файлов видно/Hужно помнить". Только блоки кода + одна строка итога.' }
+                  { role: 'user', content: 'PREVIOUS ANSWER HAD NO CODE OR WAS FUZZY PROSE (variant: vezde/poluchili/net-konkretnogo/podrazumevaetsya). Repeat strictly: full code blocks inside triple backticks with "// file: path" or "<!-- file: path -->" on the first line. No thinking-out-loud prose. Only code + one final line. If the target file is unclear, pick the most likely HTML file from the workspace listing above and write its full content with the correct path.' }
                 ]);
                 if (!r2.error && r2.text) return { text: r2.text, model: strongId };
               } catch {}
