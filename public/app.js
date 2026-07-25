@@ -12,6 +12,9 @@
   const toolsView = document.getElementById('toolsView');
   const previewView = document.getElementById('previewView');
   const previewFrame = document.getElementById('previewFrame');
+  const previewRefresh = document.getElementById('previewRefresh');
+  const previewClear = document.getElementById('previewClear');
+  const previewChanges = document.getElementById('previewChanges');
   const settingsBtn = document.getElementById('settingsBtn');
   const settingsPanel = document.getElementById('settingsPanel');
   const closeSettings = document.getElementById('closeSettings');
@@ -23,6 +26,7 @@
   let sending = false;
   let modelPresets = {};
   let config = { hasOpenRouter: false, hasGroq: false, hasOllama: false };
+  let lastReplyModel = '';
 
   const colorMap = { economy: '#4ade80', standard: '#3b82f6', pro: '#a78bfa', auto: 'linear-gradient(135deg,#4ade80,#3b82f6,#a78bfa)' };
 
@@ -65,6 +69,14 @@
     } catch (e) { console.error(e); }
   }
 
+  async function loadWorkspaceFiles() {
+    try {
+      const res = await fetch('/api/workspace/files');
+      const data = await res.json();
+      renderChangesPanel(data.files || []);
+    } catch (e) { console.error(e); }
+  }
+
   function showEmptyState() {
     messagesEl.innerHTML = `
       <div class="empty-chat">
@@ -73,7 +85,7 @@
           <path d="M10 14h16M10 20h10" stroke="#3b4258" stroke-width="2" stroke-linecap="round"/>
         </svg>
         <p>Начните диалог</p>
-        <span>Бесплатные open-source модели через OpenRouter.</span>
+        <span>Автоподбор модели по задаче. Превью обновляется при изменении кода.</span>
       </div>`;
   }
 
@@ -83,7 +95,7 @@
       const div = document.createElement('div');
       div.className = 'dropdown-item' + (key === currentModel ? ' active' : '');
       div.dataset.model = key;
-      div.innerHTML = `<span class="dot ${p.color}"></span>${p.label}<span class="free-badge">бесплатно</span><span class="desc">${p.desc}</span>`;
+      div.innerHTML = `<span class="dot ${p.color}"></span>${p.label}<span class="desc">${p.desc}</span>`;
       div.addEventListener('click', () => selectModel(key));
       modelDropdown.appendChild(div);
     });
@@ -97,14 +109,14 @@
   }
 
   function updateModelDisplay() {
-    const p = modelPresets[currentModel] || { label: 'Free Router', color: 'auto' };
+    const p = modelPresets[currentModel] || { label: 'Авто', color: 'auto' };
     modelLabel.textContent = p.label;
     modelDot.style.background = colorMap[p.color] || colorMap.auto;
   }
 
   function renderProviders() {
     const providers = [
-      { name: 'OpenRouter', key: 'OPENROUTER_API_KEY', ok: config.hasOpenRouter, models: 'GPT-OSS, Nemotron, Gemma, North (free)', link: 'openrouter.ai/settings' },
+      { name: 'OpenRouter', key: 'OPENROUTER_API_KEY', ok: config.hasOpenRouter, models: 'GPT-OSS, Nemotron, Gemma, North', link: 'openrouter.ai/settings' },
       { name: 'Groq', key: 'GROQ_API_KEY', ok: config.hasGroq, models: 'Llama, Mixtral, Gemma (требует ключ)', link: 'console.groq.com/keys' },
       { name: 'Ollama', key: 'OLLAMA_HOST', ok: config.hasOllama, models: 'Локальные модели', link: 'ollama.com' }
     ];
@@ -120,6 +132,76 @@
     `).join('');
   }
 
+  // ── Code change extraction ───────────────────────────
+  function extractCodeChanges(content) {
+    const changes = [];
+    const codeBlockRegex = /```([a-zA-Z0-9+_-]*)\n([\s\S]*?)```/g;
+    let match;
+    while ((match = codeBlockRegex.exec(content)) !== null) {
+      const lang = match[1].trim();
+      let code = match[2];
+      const firstLine = code.split('\n')[0].trim();
+      const fileMatch = firstLine.match(/(?:\/\/|#|<!--)\s*file:\s*(.+?)(?:\s*-->)?\s*$/i);
+      if (fileMatch) {
+        const filePath = fileMatch[1].trim();
+        code = code.substring(code.indexOf('\n') + 1);
+        changes.push({ path: filePath, content: code, lang });
+      }
+    }
+    return changes;
+  }
+
+  async function applyCodeChanges(changes) {
+    if (!changes.length) return;
+    try {
+      const res = await fetch('/api/apply-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changes })
+      });
+      const data = await res.json();
+      if (data.applied && data.applied.length) {
+        showChangesNotification(data.applied);
+        reloadPreview();
+        loadWorkspaceFiles();
+      }
+      return data;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function showChangesNotification(files) {
+    const text = files.length === 1 ? `Изменён файл: ${files[0]}` : `Изменено файлов: ${files.length}`;
+    const note = document.createElement('div');
+    note.className = 'change-notification';
+    note.textContent = text;
+    document.body.appendChild(note);
+    setTimeout(() => note.classList.add('fade-out'), 2500);
+    setTimeout(() => note.remove(), 3000);
+  }
+
+  function renderChangesPanel(files) {
+    if (!files.length) {
+      previewChanges.innerHTML = '<div class="no-changes">Нет изменений в workspace</div>';
+      return;
+    }
+    previewChanges.innerHTML = files.map(f => `
+      <div class="change-file">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        <span>${f}</span>
+      </div>
+    `).join('');
+  }
+
+  function reloadPreview() {
+    const src = previewFrame.src || '/preview/';
+    previewFrame.src = src;
+  }
+
+  // ── Messages ──────────────────────────────────────────
   function appendUserMsg(content, ts) {
     const div = document.createElement('div');
     div.className = 'msg-user';
@@ -133,7 +215,7 @@
     messagesEl.appendChild(div);
   }
 
-  function appendThinking(thinkingId) {
+  function appendThinking(thinkingId, modelName) {
     const div = document.createElement('div');
     div.className = 'msg-agent';
     div.id = `thinking-${thinkingId}`;
@@ -141,6 +223,7 @@
       <div class="msg-agent-status">
         <div class="status-icon"><div class="spinner"></div></div>
         <span>Думаю...</span>
+        ${modelName ? `<span class="model-tag">${modelName}</span>` : ''}
       </div>`;
     messagesEl.appendChild(div);
     scrollBottom();
@@ -203,7 +286,7 @@
   function renderMarkdown(text) {
     if (!text) return '';
     let html = escHtml(text);
-    html = html.replace(/```([a-z]*)\n?([\s\S]*?)```/g, (m, lang, code) => `<pre><code class="language-${lang}">${code.trim()}</code></pre>`);
+    html = html.replace(/```([a-zA-Z0-9+_-]*)\n?([\s\S]*?)```/g, (m, lang, code) => `<pre><code class="language-${lang}">${code.trim()}</code></pre>`);
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
@@ -226,7 +309,8 @@
     appendUserMsg(content, Date.now());
     scrollBottom();
 
-    const thinkEl = appendThinking('temp');
+    const selectedPreset = modelPresets[currentModel] || modelPresets.auto || { name: 'Авто' };
+    const thinkEl = appendThinking('temp', selectedPreset.name);
     thinkEl.id = 'thinking-temp';
 
     try {
@@ -255,6 +339,10 @@
           const msg = await res.json();
           clearInterval(interval);
           resolveThinking(thinkingId, msg.content, msg.worked, msg.model, msg.error);
+          if (!msg.error) {
+            const changes = extractCodeChanges(msg.content);
+            if (changes.length) await applyCodeChanges(changes);
+          }
           sending = false;
           sendBtn.disabled = false;
         }
@@ -312,11 +400,19 @@
   });
 
   document.getElementById('runBtn').addEventListener('click', () => {
-    previewFrame.src = previewFrame.src;
+    reloadPreview();
     tabs.forEach(x => x.classList.remove('active'));
     document.querySelector('[data-tab="preview"]').classList.add('active');
     toolsView.classList.remove('active');
     previewView.classList.add('active');
+  });
+
+  previewRefresh.addEventListener('click', reloadPreview);
+  previewClear.addEventListener('click', async () => {
+    if (!confirm('Очистить workspace?')) return;
+    await fetch('/api/workspace/clear', { method: 'POST' });
+    reloadPreview();
+    loadWorkspaceFiles();
   });
 
   const nameEl = document.getElementById('projectName');
@@ -364,7 +460,7 @@
       if (!cfg.hasOpenRouter) {
         scanStatus.innerHTML = 'OpenRouter не подключен. Добавьте OPENROUTER_API_KEY в секреты.';
       } else {
-        scanStatus.innerHTML = `OpenRouter подключен.<br>Доступно бесплатных моделей: ${Object.keys(cfg.presets).length}.`;
+        scanStatus.innerHTML = `OpenRouter подключен.<br>Доступно моделей: ${Object.keys(cfg.presets).length}.`;
       }
     } catch (e) {
       scanStatus.textContent = 'Ошибка проверки: ' + e.message;
@@ -376,4 +472,5 @@
 
   loadConfig();
   loadMessages();
+  loadWorkspaceFiles();
 })();

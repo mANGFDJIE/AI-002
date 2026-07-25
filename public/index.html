@@ -169,15 +169,23 @@
               <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.1"/>
               <path d="M6 2.5C6 2.5 4 5 4 6s2 3.5 2 3.5M6 2.5C6 2.5 8 5 8 6s-2 3.5-2 3.5M2.5 6h7" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
             </svg>
-            <span id="previewUrl">localhost:5000</span>
+            <span id="previewUrl">/preview/</span>
           </div>
-          <button class="preview-refresh" title="Обновить">
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <path d="M11 6.5A4.5 4.5 0 112 6.5M11 3v3.5H7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
+          <div class="preview-actions">
+            <button class="preview-refresh" id="previewRefresh" title="Обновить">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M11 6.5A4.5 4.5 0 112 6.5M11 3v3.5H7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <button class="preview-clear" id="previewClear" title="Очистить workspace">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M2 3h9M4 3V2a1 1 0 011-1h3a1 1 0 011 1v1M5 6v4M8 6v4M3 3v8a1 1 0 001 1h5a1 1 0 001-1V3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
         </div>
-        <iframe id="previewFrame" src="about:blank" title="Превью"></iframe>
+        <div class="preview-changes" id="previewChanges"></div>
+        <iframe id="previewFrame" src="/preview/" title="Превью"></iframe>
       </div>
     </div>
   </div>
@@ -197,8 +205,8 @@
     </div>
     <div class="settings-body">
       <div class="settings-section">
-        <h3>Бесплатные модели OpenRouter</h3>
-        <p class="settings-hint">Агент использует бесплатные open-source модели. Если выбранная модель требует кредитов, сервер автоматически переключится на свободную.</p>
+        <h3>Модели OpenRouter</h3>
+        <p class="settings-hint">Агент использует open-source модели. Если выбранная модель недоступна, сервер автоматически переключится на резервную.</p>
         <div class="provider-grid" id="providerGrid"></div>
       </div>
       <div class="settings-section">

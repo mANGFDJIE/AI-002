@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Вход — Демо</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="login-container">
+    <h1>Вход</h1>
+    <form id="login-form" novalidate>
+      <div class="form-group">
+        <label for="username">Логин</label>
+        <input type="text" id="username" name="username" autocomplete="username" required>
+        <span class="error-message" id="username-error"></span>
+      </div>
+
+      <div class="form-group">
+        <label for="password">Пароль</label>
+        <div class="password-wrapper">
+          <input type="password" id="password" name="password" autocomplete="current-password" required>
+          <button type="button" id="toggle-password" aria-label="Показать пароль">👁️</button>
+        </div>
+        <span class="error-message" id="password-error"></span>
+      </div>
+
+      <div class="form-group remember-me">
+        <input type="checkbox" id="remember" name="remember">
+        <label for="remember">Запомнить меня</label>
+      </div>
+
+      <button type="submit" id="submit-btn">Войти</button>
+
+      <div class="form-group error-global" id="global-error"></div>
+    </form>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

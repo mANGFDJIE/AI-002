@@ -717,6 +717,66 @@ textarea::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2
 }
 .provider-card .status { font-size: 10.5px; }
 
+/* ─── PREVIEW CHANGES PANEL ──────────────────────────── */
+.preview-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.preview-clear {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+}
+.preview-clear:hover { background: var(--bg4); color: var(--red); }
+
+.preview-changes {
+  max-height: 120px;
+  overflow-y: auto;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+.change-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  color: var(--green);
+}
+
+.no-changes {
+  padding: 4px 0;
+  color: var(--text3);
+  font-style: italic;
+}
+
+.change-notification {
+  position: fixed;
+  bottom: 70px;
+  right: 16px;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  z-index: 100;
+  transition: opacity .3s ease;
+}
+.change-notification.fade-out { opacity: 0; }
+
 .dot {
   width: 7px;
   height: 7px;
