@@ -12,9 +12,9 @@
   const toolsView = document.getElementById('toolsView');
   const previewView = document.getElementById('previewView');
   const previewFrame = document.getElementById('previewFrame');
-  const previewRefresh = document.getElementById('previewRefresh');
-  const previewClear = document.getElementById('previewClear');
   const previewChanges = document.getElementById('previewChanges');
+  const previewStatus = document.getElementById('previewStatus');
+  const previewConsole = document.getElementById('previewConsole');
   const settingsBtn = document.getElementById('settingsBtn');
   const settingsPanel = document.getElementById('settingsPanel');
   const closeSettings = document.getElementById('closeSettings');
@@ -25,22 +25,553 @@
   let currentModel = 'auto';
   let sending = false;
   let modelPresets = {};
-  let config = { hasOpenRouter: false, hasGroq: false, hasOllama: false };
+  let config = { hasLocalLLM: false, llmModel: '', hasOpenAI: false, openaiBaseURL: '' };
   let lastReplyModel = '';
+  const llm = new WebLLMClient();
+  let chatAbort = null;
+  function setStopVisible(v) {
+    const el = document.getElementById('stopBtn');
+    if (!el) return;
+    el.style.display = v ? 'inline-flex' : 'none';
+    el.classList.toggle('is-running', !!v);
+  }
+  const LLM_SYSTEM_PROMPT = 'Вы — полноценный автономный AI-агент. Умеете писать и редактировать код, анализировать, проектировать, объяснять.\nКогда вы возвращаете КАКОЙ-ЛИБО код для файла (HTML/CSS/JS/JSON/…), ОБЯЗАТЕЛЬНО сопровождайте блок маркером пути — одним из двух способов:\n1) прямо в info-string после тройного бэктика — пример: ```html // file: index.html  либо  ```css // file: styles.css\n2) в первой строке самого блока — пример: `// file: index.html`  или  `<!-- file: index.html -->`\nБез маркера файл НЕ сохранится в workspace, и пользователь увидит код только в чате (а проводник останется пустым) — поэтому маркер обязателен для ЛЮБОГО кода, который должен попасть в файлы. Дефолты для авто-именования: HTML → index.html, CSS → styles.css, JS → script.js, JSON → data.json. Если файл уже есть в workspace — редактируйте его, а не плодите новые с тем же содержимым (см. раздел «Текущее состояние проекта» в системном контексте). Отвечайте на русском, если запрос на русском. Будьте конкретны и полезны.';
+
+  // Склеивает текст + прикреплённые картинки в OpenAI multimodal content
+  // (image_url parts), чтобы модель реально видела скриншоты в диалоге, а не
+  // только имя файла в системном промпте. Берём максимум 4 картинки — иначе
+  // токены раздуваются.
+  function attachImagesToUser(text, atts) {
+    const imgs = (atts || []).filter(a => a && /^image\//i.test(a.type || '') && a.dataUrl).slice(0, 4);
+    if (!imgs.length) return text;
+    const parts = [];
+    if (text) parts.push({ type: 'text', text });
+    for (const a of imgs) parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
+    return parts;
+  }
+
+  // Текст + images в multimodal form (или просто строка). Флаг wantImages
+  // нужен, чтобы НЕ пихать image_url в модели без vision — DeepSeek/Claude
+  // отвечают ошибкой 'unknown variant `image_url`, expected text'.
+  function userContentFor(text, atts, wantImages) {
+    return !!wantImages ? attachImagesToUser(text, atts) : (text || '');
+  }
 
   const colorMap = { economy: '#4ade80', standard: '#3b82f6', pro: '#a78bfa', auto: 'linear-gradient(135deg,#4ade80,#3b82f6,#a78bfa)' };
 
   async function loadConfig() {
+    // Браузерный WebLLM-каталог (29 моделей) выключен — переключаемся на облачные.
+    modelPresets = {};
+
+    // Fetch server config (local LLM status, supabase, etc.)
     try {
-      const res = await fetch('/api/config');
-      config = await res.json();
-      modelPresets = config.presets || {};
-      renderModelDropdown();
-      renderProviders();
-      updateModelDisplay();
-      if (!config.hasOpenRouter) showNoProviderBanner();
-    } catch (e) { console.error(e); }
+      const r = await fetch('/api/config');
+      config = await r.json();
+    } catch {}
+
+    // Add local LLM preset if available
+    if (config.hasLocalLLM) {
+      modelPresets['local'] = {
+        name: 'Локально (сервер)', label: 'Локально', color: 'economy',
+        desc: `Серверная модель ${config.llmModel} — без ключей и без WebGPU`,
+        local: true
+      };
+    }
+    // Если облачный провайдер доступен — по умолчанию стартуем с ⭐ Авто
+    // (лёгкий маршрутизатор gpt-5-mini: сам решит, кому делегировать).
+    if (config.hasOpenAI && (currentModel === 'auto' || currentModel === 'orchestrator')) {
+      currentModel = 'orchestrator';
+    }
+
+    // Add OpenAI-compatible models (DeepSeek, OpenAI, OpenRouter…)
+    if (config.hasOpenAI) {
+      const base = config.openaiBaseURL || '';
+      const isDeepSeek = base.includes('deepseek');
+      const isOpenAI = base.includes('openai');
+      const isOpenRouter = base.includes('openrouter');
+      const isVseGpt = base.includes('vsegpt');
+      // vsegpt принимает только префиксные id формата "provider/model" (deepseek/deepseek-chat и т.д.);
+      // нативный DeepSeek ждёт "deepseek-chat" без слеша; OpenRouter — "deepseek/deepseek-chat-v3.1".
+      const v3Model = isOpenRouter ? 'deepseek/deepseek-chat-v3.1'
+                                   : isVseGpt   ? 'deepseek/deepseek-chat'
+                                   : isDeepSeek ? 'deepseek-chat'
+                                   : (isOpenAI ? 'gpt-4o-mini' : '');
+      const r1Model = (isOpenRouter || isVseGpt) ? 'deepseek/deepseek-r1'
+                                   : isDeepSeek ? 'deepseek-reasoner'
+                                   : '';
+      const v3Label = isDeepSeek || isOpenRouter ? 'DeepSeek V3' : isOpenAI ? 'GPT-4o' : 'Chat';
+      const r1Label = isDeepSeek || isOpenRouter ? 'DeepSeek R1' : '';
+      const v3Desc = isDeepSeek || isOpenRouter ? 'DeepSeek-V3 — мощная модель'
+                   : isOpenAI ? 'GPT-4o-mini через OpenAI-совместимый прокси'
+                   : 'OpenAI-совместимая модель';
+      modelPresets['openai-chat'] = {
+        name: v3Label, label: v3Label, color: 'pro',
+        desc: v3Desc,
+        openai: true,
+        apiModel: v3Model
+      };
+      if (r1Model) {
+        modelPresets['deepseek-reasoner'] = {
+          name: r1Label, label: r1Label, color: 'pro',
+          desc: 'DeepSeek-R1 — reasoning-модель, сложные задачи, математика',
+          openai: true,
+          apiModel: r1Model
+        };
+      }
+
+      // ── Авто и мульти-агент — лёгкая gpt-5-mini как маршрутизатор.
+      //    Сама решает: ответить прямой, делегировать одному эксперту, или параллельно опросить 3 модели.
+      // Используем ключ 'orchestrator' (а не 'auto'), чтобы legacy-ветка
+      // if (currentModel === 'auto') не пыталась дёргать window.llm.pickAuto.
+      modelPresets['orchestrator'] = {
+        name: '⭐ Авто', label: '⭐ Авто', color: 'auto',
+        desc: 'Лёгкий DeepSeek Chat решит: ответить прямой или делегировать одному эксперту (Claude Sonnet 4.6 H, DeepSeek V4 Flash, DeepSeek Coder…)',
+        openai: true,
+        apiModel: 'openai/gpt-5-mini',
+        router: 'auto',
+        featured: true
+      };
+      modelPresets['multi'] = {
+        name: '⭐ Мульти-агент', label: '⭐ Мульти-агент', color: 'pro',
+        desc: 'DeepSeek Chat рассуждает и параллельно опрашивает 3 эксперта (Claude Sonnet 4.6 H, DeepSeek V4 Flash, DeepSeek Coder…), затем синтезирует финальный ответ',
+        openai: true,
+        apiModel: 'openai/gpt-5-mini',
+        router: 'multi',
+        featured: true
+      };
+
+      // ── Топ-модели (⭐) — провайдер vsegpt отдаёт префиксованные id вида "provider/name".
+      //    Это самые сильные модели в каталоге (reasoning + крупные).
+      if (isVseGpt) {
+        const featured = [
+          { id: 'anthropic/claude-sonnet-4.6-thinking-high', label: 'Claude S 4.6 H',     desc: 'Anthropic Claude Sonnet 4.6 (high) — топ для кода/агентов, держит длинный контекст и современный стек' },
+          { id: 'deepseek/deepseek-v4-flash-thinking',      label: 'DS V4 Flash Think',  desc: 'DeepSeek V4 Flash + thinking — крепкий код, рассуждения с chain-of-thought' },
+          { id: 'anthropic/claude-sonnet-4.5',                label: 'Claude S 4.5',       desc: 'Anthropic Claude Sonnet 4.5 — топ для современного кода, широкий стек' },
+          { id: 'anthropic/claude-sonnet-4',                  label: 'Claude S 4',         desc: 'Anthropic Claude Sonnet 4 — топ для современного кода, длинный контекст' },
+          { id: 'deepseek/deepseek-coder',                   label: 'DS Coder',           desc: 'DeepSeek Coder — крепкий кодер на длинном контексте' },
+          { id: 'deepseek/deepseek-r1',                      label: 'DS R1',              desc: 'DeepSeek-R1 — рассуждения и многошаговое планирование' }
+        ];
+        featured.forEach((f, i) => {
+          modelPresets[`featured-${i}`] = {
+            name: '⭐ ' + f.label, label: '⭐ ' + f.label, color: 'pro',
+            desc: f.desc,
+            openai: true,
+            apiModel: f.id,
+            featured: true
+          };
+        });
+      }
+    }
+
+    renderModelDropdown();
+    renderProviders();
+    updateModelDisplay();
+    if (!window.WEBLLM_SUPPORTED && !config.hasLocalLLM && !config.hasOpenAI) showNoProviderBanner();
+    if (window.SupabaseSync) await window.SupabaseSync.init();
+    subscribeWorkspace();
+    wirePreviewExtras();
   }
+
+  // ── Replit-exact preview extras: tree + source + layout + console filters ──
+  const previewTreeList = () => document.getElementById('previewTreeList');
+  const previewTreeCount = () => document.getElementById('previewTreeCount');
+  const previewSource = () => document.getElementById('previewSource');
+  const previewViewport = () => document.getElementById('previewViewport');
+  const previewExternal = () => document.getElementById('previewExternal');
+
+  let _activeFile = null;
+  const _fileCache = new Map();
+  let _consoleFilter = 'all';
+
+  function iconFor(name) {
+    if (/\.html?$/i.test(name)) return 'html';
+    if (/\.css$/i.test(name)) return 'css';
+    if (/\.m?js$/i.test(name)) return 'js';
+    if (/\.json$/i.test(name)) return 'json';
+    if (/\.md$/i.test(name)) return 'md';
+    return 'txt';
+  }
+  function extIconText(ext) {
+    return ext === 'js' ? 'JS' : ext === 'css' ? '#' : ext === 'html' ? '<>' : ext === 'json' ? '{}' : ext === 'md' ? 'M' : '·';
+  }
+  function fmtSize(n) {
+    if (n < 1024) return n + 'B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + 'K';
+    return (n / 1024 / 1024).toFixed(1) + 'M';
+  }
+  function badgeFor(name) {
+    if (/^package(-lock)?\.json$/i.test(name)) return { kind: 'M', cls: 'badge-pkg' };
+    if (/\.json$/i.test(name)) return { kind: '{}', cls: 'badge-json' };
+    if (/\.md$/i.test(name)) return { kind: 'M', cls: 'badge-md' };
+    if (/\.sql$/i.test(name)) return { kind: 'A', cls: 'badge-aid' };
+    if (/\.zip$/i.test(name)) return { kind: 'A', cls: 'badge-zip' };
+    if (/\.js$/i.test(name)) return { kind: 'JS', cls: 'badge-js' };
+    if (/\.css$/i.test(name)) return { kind: '#', cls: 'badge-css' };
+    if (/\.html?$/i.test(name)) return { kind: '<>', cls: 'badge-html' };
+    if (/\.ts$/i.test(name)) return { kind: 'TS', cls: 'badge-js' };
+    return { kind: '·', cls: 'badge-default' };
+  }
+  function isPackagerFile(name) {
+    return /^package(-lock)?\.json$/i.test(name);
+  }
+  function renderFileTree(files) {
+    window.__lastFiles = files;
+    const list = previewTreeList();
+    const count = previewTreeCount();
+    const filterEl = document.getElementById('librarySearch');
+    const filter = (filterEl?.value || '').trim().toLowerCase();
+    if (!list) return;
+    if (count) count.textContent = files.length;
+    if (!files.length) {
+      list.innerHTML = '';
+      return;
+    }
+
+    const buildRow = (f) => {
+      const item = document.createElement('div');
+      item.className = 'library-row';
+      item.dataset.name = f.name;
+      if (_activeFile === f.name) item.classList.add('active');
+
+      const icon = document.createElement('span');
+      const ext = iconFor(f.name);
+      icon.className = 'library-row-icon ' + ext;
+      icon.textContent = extIconText(ext);
+
+      const name = document.createElement('span');
+      name.className = 'library-row-name';
+      name.textContent = f.name;
+      name.title = f.name;
+
+      const badge = document.createElement('span');
+      const b = badgeFor(f.name);
+      badge.className = 'library-badge ' + b.cls;
+      badge.textContent = b.kind;
+
+      const actions = document.createElement('span');
+      actions.className = 'library-row-actions';
+
+      const dl = document.createElement('button');
+      dl.className = 'library-action';
+      dl.title = 'Скачать';
+      dl.textContent = '↓';
+      dl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.open('/api/workspace/download?path=' + encodeURIComponent(f.name), '_blank');
+      });
+
+      const del = document.createElement('button');
+      del.className = 'library-action library-action-del';
+      del.title = 'Удалить';
+      del.textContent = '×';
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('Удалить «' + f.name + '»?')) return;
+        try {
+          const r = await fetch('/api/workspace/file?path=' + encodeURIComponent(f.name), { method: 'DELETE' });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        } catch (err) {
+          pushConsoleLine('error', ['Delete failed', f.name, err.message || String(err)]);
+        }
+      });
+
+      actions.appendChild(dl);
+      actions.appendChild(del);
+
+      item.appendChild(icon);
+      item.appendChild(name);
+      item.appendChild(badge);
+      item.appendChild(actions);
+      item.addEventListener('click', () => openFileInSource(f.name));
+      return item;
+    };
+
+    const others = files.filter(f => !isPackagerFile(f.name));
+    const packager = files.filter(f => isPackagerFile(f.name));
+
+    list.innerHTML = '';
+    let anyRendered = false;
+    const section = (title, items) => {
+      const matches = items.filter(f => !filter || f.name.toLowerCase().includes(filter));
+      if (!matches.length) return;
+      const sec = document.createElement('div');
+      sec.className = 'library-section';
+      if (title) {
+        const h = document.createElement('div');
+        h.className = 'library-section-title';
+        h.textContent = title;
+        sec.appendChild(h);
+      }
+      for (const f of matches) sec.appendChild(buildRow(f));
+      list.appendChild(sec);
+      anyRendered = true;
+    };
+    section(null, others);
+    section('Packager files', packager);
+    if (!anyRendered) {
+      list.innerHTML = '';
+    }
+  }
+  function highlightSource(text, ext) {
+    const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    if (ext === 'html') {
+      let h = esc(text);
+      h = h.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="tok-com">$1</span>');
+      h = h.replace(/(&lt;\/?)([a-zA-Z][\w-]*)/g, '$1<span class="tok-tag">$2</span>');
+      h = h.replace(/(\s)([a-zA-Z-]+)=("[^"]*")/g, '$1<span class="tok-attr">$2</span>=<span class="tok-str">$3</span>');
+      return h;
+    }
+    if (ext === 'js' || ext === 'json') {
+      let h = esc(text);
+      h = h.replace(/(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, '<span class="tok-com">$1</span>');
+      h = h.replace(/("(?:\\.|[^"\\])*")/g, '<span class="tok-str">$1</span>');
+      h = h.replace(/\b(true|false|null|undefined|function|return|var|let|const|if|else|for|while|switch|case|break|new|class|this|import|from|export|async|await|try|catch|throw)\b/g, '<span class="tok-key">$1</span>');
+      h = h.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-num">$1</span>');
+      return h;
+    }
+    if (ext === 'css') {
+      let h = esc(text);
+      h = h.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="tok-com">$1</span>');
+      h = h.replace(/(^|\n)(\.[\w-]+|@[\w-]+|#[\w-]+|[\w-]+)(?=[\s{:])/g, '$1<span class="tok-sel">$2</span>');
+      h = h.replace(/("[^"]*"|'[^']*')/g, '<span class="tok-str">$1</span>');
+      h = h.replace(/\b(\d+(?:\.\d+)?(?:px|em|rem|%|deg|s|ms)?)\b/g, '<span class="tok-num">$1</span>');
+      return h;
+    }
+    return esc(text);
+  }
+  async function openFileInSource(name) {
+    _activeFile = name;
+    renderFileTree(window._lastFiles || []);
+    const ext = iconFor(name);
+    const src = previewSource();
+    const viewport = previewViewport();
+    let content;
+    if (_fileCache.has(name)) {
+      content = _fileCache.get(name);
+    } else {
+      try {
+        const res = await fetch(`/api/workspace/raw?path=${encodeURIComponent(name)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        content = await res.text();
+        _fileCache.set(name, content);
+      } catch (e) {
+        if (src) src.innerHTML = '<code>// Не удалось открыть ' + name + ': ' + (e.message || e) + '</code>';
+        return;
+      }
+    }
+    if (src) src.innerHTML = '<code>' + highlightSource(content, ext) + '</code>';
+    // Auto-switch layout to "code" so the user actually sees it.
+    if (viewport && viewport.dataset.layout === 'preview') {
+      setLayout('split');
+    }
+  }
+  function setLayout(mode) {
+    (void mode<'split'?'split':'code');  // legacy: no-op; preview layout switched to tabs
+  }
+  // Switch between right-panel tabs: Превью / Файлы
+  function setRightTab(name) {
+    document.querySelectorAll('.topbar-tabs button[data-tab]').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === name);
+    });
+    document.querySelectorAll('.right-panel-inner[data-tab]').forEach(p => {
+      p.classList.toggle('active', p.dataset.tab === name);
+    });
+  }
+  function setConsoleFilter(f) {
+    _consoleFilter = f;
+    document.querySelectorAll('#previewConsoleFilters .filter-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.filter === f);
+    });
+    const root = document.getElementById('previewConsole');
+    if (!root) return;
+    for (const line of root.querySelectorAll('.preview-console-line')) {
+      const lvl = line.dataset.lvl || '';
+      line.style.display = (f === 'all' || lvl === f || (f === 'error' && lvl === 'unhandledrejection')) ? '' : 'none';
+    }
+  }
+  function wirePreviewExtras() {
+    // Expose last files for openFileInSource re-render after item click reset.
+    const orig = renderFileTree;
+    // Layout tabs
+    document.querySelectorAll('.right-tab-bar button').forEach(btn => {
+      btn.addEventListener('click', () => setRightTab(btn.dataset.tab));
+    });
+    // Console filters
+    document.querySelectorAll('#previewConsoleFilters .filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => setConsoleFilter(btn.dataset.filter));
+    });
+    // Console clear
+    document.getElementById('previewConsoleClear')?.addEventListener('click', () => {
+      const c = document.getElementById('previewConsole');
+      if (!c) return;
+      c.innerHTML = '<div class="preview-console-empty">Логи очищены</div>';
+    });
+    // Console collapse/expand toggle
+    document.getElementById('previewConsoleToggle')?.addEventListener('click', () => {
+      const c = document.querySelector('.preview-console');
+      if (!c) return;
+      if (c.classList.contains('collapsed')) {
+        c.classList.remove('collapsed');
+        c.classList.add('expanded');
+      } else {
+        c.classList.remove('expanded');
+        c.classList.add('collapsed');
+      }
+    });
+    // ── Drag-to-resize splitter ──
+    const rp = document.getElementById('rightPanel');
+    const handle = document.getElementById('panelResizeHandle');
+    if (handle && rp) {
+      let dragging = false, startX = 0, startW = 0;
+      handle.addEventListener('mousedown', (e) => {
+        dragging = true;
+        startX = e.clientX;
+        startW = rp.getBoundingClientRect().width;
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'col-resize';
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const dx = startX - e.clientX; // handle moves left → right panel grows
+        const newW = Math.max(280, Math.min(window.innerWidth - 320, startW + dx));
+        rp.style.flex = '0 0 ' + newW + 'px';
+      });
+      window.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+      });
+    }
+
+    // ── File explorer: upload (button + drag-drop) ──
+    function uploadFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error || new Error('read failed'));
+        reader.onload = async () => {
+          try {
+            const dataUrl = String(reader.result || '');
+            const base64 = dataUrl.includes(',') ? dataUrl.split(',').pop() : dataUrl;
+            const res = await fetch('/api/workspace/upload', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: file.name, data: base64 })
+            });
+            const json = await res.json().catch(() => ({}));
+            if (!res.ok || !json.ok) throw new Error(json.error || ('HTTP ' + res.status));
+            pushConsoleLine('info', ['Uploaded', file.name, '(' + fmtSize(file.size) + ')']);
+            resolve(json);
+          } catch (e) { reject(e); }
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+    const uploadBtn = document.getElementById('previewUpload');
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.multiple = true;
+    fileInput.style.display = 'none';
+    document.body.appendChild(fileInput);
+    uploadBtn?.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+      const batch = Array.from(fileInput.files || []);
+      for (let i = 0; i < batch.length; i++) {
+        try { await uploadFile(batch[i]); }
+        catch (e) { pushConsoleLine('error', ['Upload failed', batch[i].name, e.message || String(e)]); }
+      }
+      fileInput.value = '';
+    });
+    // Drag-and-drop into the tree panel
+    const treePanel = document.getElementById('previewTree');
+    if (treePanel) {
+      ['dragenter','dragover'].forEach(ev => treePanel.addEventListener(ev, (e) => {
+        e.preventDefault();
+        treePanel.classList.add('drag-over');
+      }));
+      ['dragleave','dragend','drop'].forEach(ev => treePanel.addEventListener(ev, (e) => {
+        if (ev === 'dragleave' && treePanel.contains(e.relatedTarget)) return;
+        treePanel.classList.remove('drag-over');
+      }));
+      treePanel.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        const batch = Array.from(e.dataTransfer.files || []);
+        for (let i = 0; i < batch.length; i++) {
+          try { await uploadFile(batch[i]); }
+          catch (err) { pushConsoleLine('error', ['Upload failed', batch[i].name, err.message || String(err)]); }
+        }
+      });
+    }
+  }
+
+  // ── Live preview via SSE + postMessage console bridge ──
+  // Mirrors Replit-like behaviour: when an agent writes a file in
+  // workspace/preview/, the iframe auto-updates and the console-output
+  // strip captures iframe-side logs/errors.
+  let _sse = null;
+  let _lastFilesSig = '';
+  function setPreviewStatus(state, label) {
+    const el = previewStatus;
+    if (!el) return;
+    el.classList.remove('syncing', 'error');
+    if (state === 'syncing') el.classList.add('syncing');
+    else if (state === 'error') el.classList.add('error');
+    el.querySelector('.label').textContent = label;
+  }
+  function subscribeWorkspace() {
+    try {
+      if (_sse) _sse.close();
+      _sse = new EventSource('/api/workspace/events');
+      _sse.addEventListener('files', (e) => {
+        const files = JSON.parse(e.data || '[]');
+        const sig = files.map(f => f.name + ':' + f.mtime + ':' + f.size).join('|');
+        if (sig !== _lastFilesSig) {
+          _lastFilesSig = sig;
+          renderChangesPanel(files);
+          renderFileTree(files);
+          window._lastFiles = files;
+          // Soft auto-reload: this is identical to Replit's "Run on save" feel.
+          setPreviewStatus('syncing', 'Reload');
+          reloadPreview();
+        }
+      });
+      _sse.addEventListener('error', () => setPreviewStatus('error', 'Offline'));
+      _sse.addEventListener('open', () => setPreviewStatus('live', 'Live'));
+    } catch (err) {
+      console.warn('SSE subscribe failed:', err);
+      setPreviewStatus('error', 'Offline');
+      if (_sse) try { _sse.close(); } catch {}
+      setTimeout(subscribeWorkspace, 3000);
+    }
+  }
+  function pushConsoleLine(type, args) {
+    if (!previewConsole) return;
+    const empty = previewConsole.querySelector('.preview-console-empty');
+    if (empty) empty.remove();
+    const line = document.createElement('div');
+    line.className = 'preview-console-line ' + type;
+    const lvl = document.createElement('span');
+    lvl.className = 'lvl';
+    lvl.textContent = type;
+    const msg = document.createElement('span');
+    msg.className = 'msg';
+    msg.textContent = (args || []).join(' ');
+    line.appendChild(lvl);
+    line.appendChild(msg);
+    previewConsole.appendChild(line);
+    while (previewConsole.childElementCount > 200) previewConsole.removeChild(previewConsole.firstChild);
+    previewConsole.scrollTop = previewConsole.scrollHeight;
+  }
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (!d || d.source !== 'preview-iframe') return;
+    if (d.type === 'ready') { setPreviewStatus('live', 'Live'); return; }
+    if (['log','warn','error','info','unhandledrejection'].includes(d.type)) {
+      pushConsoleLine(d.type, d.args || []);
+    }
+  });
 
   function showNoProviderBanner() {
     const existing = document.getElementById('noProviderBanner');
@@ -53,28 +584,101 @@
         <circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.2"/>
         <path d="M7 4v3M7 9v1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
       </svg>
-      <span>OpenRouter не подключен. Откройте настройки →</span>
+      <span>WebGPU недоступен. Чат работает в браузерах Chrome/Edge с включённым WebGPU.</span>
     `;
     banner.addEventListener('click', () => settingsPanel.classList.add('open'));
     document.querySelector('.chat-panel').insertBefore(banner, messagesEl);
   }
 
   async function loadMessages() {
-    try {
-      const res = await fetch('/api/messages');
-      const msgs = await res.json();
-      if (msgs.length === 0) showEmptyState();
-      else msgs.forEach(m => m.role === 'user' ? appendUserMsg(m.content, m.ts) : appendAgentMsg(m.content, m.worked, m.model, m.error));
-      scrollBottom();
-    } catch (e) { console.error(e); }
+    const msgs = await loadHistory();
+    if (!Array.isArray(msgs) || msgs.length === 0) { showEmptyState(); return; }
+    for (const m of msgs) {
+      if (m.role === 'user') {
+        // Восстанавливаем превью картинок из workspace на сервере — после
+        // перезагрузки страницы исходный dataUrl уже утерян, но файл
+        // всё ещё лежит в attached/.
+        const att = await reloadHistoryAttaches(m.attachments || []);
+        appendUserMsg(m.content, Date.now(), att);
+      } else {
+        appendAgentMsg(m.content, 0, 'Локально', false);
+      }
+    }
+    scrollBottom();
+  }
+
+  // Подгружает dataUrl для картинок из истории. Текстовые и бинарные
+  // вложения проходят как есть, превью не рисуется (видна иконка + имя).
+  async function reloadHistoryAttaches(att) {
+    if (!att || !att.length) return att;
+    const out = [];
+    for (const a of att) {
+      if (a && /^image\//i.test(a.type || '') && a.path && !a.dataUrl) {
+        try {
+          const r = await fetch('/api/workspace/raw?path=' + encodeURIComponent(a.path));
+          if (r.ok) {
+            const buf = new Uint8Array(await r.arrayBuffer());
+            let bin = '';
+            for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+            out.push({ ...a, dataUrl: 'data:' + (a.type || 'image/png') + ';base64,' + btoa(bin) });
+            continue;
+          }
+        } catch (_) { /* fallthrough ниже */ }
+      }
+      out.push(a);
+    }
+    return out;
   }
 
   async function loadWorkspaceFiles() {
     try {
       const res = await fetch('/api/workspace/files');
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       renderChangesPanel(data.files || []);
+      renderFileTree(data.files || []);
+      window._lastFiles = data.files || [];
+      invalidateWorkspaceSnapshot();
     } catch (e) { console.error(e); }
+  }
+
+  // ── Снимок проекта для системного контекста модели. ──
+  // Кешируем на короткое время — чтобы соседние запросы в одной сессии не
+  // тянули снапшот заново. Инвалидируется после любой записи (applyCodeChanges)
+  // или ручного refresh проводника.
+  function invalidateWorkspaceSnapshot() {
+    window._workspaceSnapshot = null;
+    window._workspaceSnapshotT = 0;
+  }
+  async function loadWorkspaceSnapshot(opts = {}) {
+    const maxAgeMs = (opts && opts.maxAgeMs != null) ? opts.maxAgeMs : 15_000;
+    const cached = window._workspaceSnapshot;
+    if (!opts.force && cached && Date.now() - (window._workspaceSnapshotT || 0) < maxAgeMs) return cached;
+    try {
+      const res = await fetch('/api/workspace/snapshot');
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || ('HTTP ' + res.status));
+      const parts = [];
+      parts.push('Файлов в проекте: ' + (data.totalFiles || 0));
+      for (const f of (data.files || [])) {
+        parts.push('\n--- FILE: ' + f.path + ' (' + f.size + ' байт) ---');
+        parts.push(f.content);
+        parts.push('--- END FILE: ' + f.path + ' ---');
+      }
+      if (data.skipped && data.skipped.length) {
+        parts.push('\nПропущены (слишком большие / превышен бюджет): ' + data.skipped.map(s => s.path + ' [' + s.reason + ']').join(', '));
+      }
+      const snapshot = Object.assign({}, data, { contextText: parts.join('\n') });
+      window._workspaceSnapshot = snapshot;
+      window._workspaceSnapshotT = Date.now();
+      return snapshot;
+    } catch (e) {
+      return null;
+    }
+  }
+  async function buildWorkspaceContextMessages() {
+    const snap = await loadWorkspaceSnapshot();
+    if (!snap || !snap.contextText) return [];
+    return [{ role: 'system', content: 'Текущее состояние проекта (workspace). Используй как контекст. Прежде чем создавать файлы, проверь — нет ли уже подходящего, и не дублируй содержимое.\n\n' + snap.contextText }];
   }
 
   function showEmptyState() {
@@ -91,7 +695,20 @@
 
   function renderModelDropdown() {
     modelDropdown.innerHTML = '';
-    Object.entries(modelPresets).forEach(([key, p]) => {
+    const entries = Object.entries(modelPresets).sort((a, b) => {
+      const af = a[1].featured ? 0 : 1;
+      const bf = b[1].featured ? 0 : 1;
+      return af - bf;
+    });
+    let featuredHeaderShown = false;
+    entries.forEach(([key, p]) => {
+      if (p.featured && !featuredHeaderShown) {
+        const sep = document.createElement('div');
+        sep.className = 'dropdown-section-label';
+        sep.textContent = '⭐ Топ-модели';
+        modelDropdown.appendChild(sep);
+        featuredHeaderShown = true;
+      }
       const div = document.createElement('div');
       div.className = 'dropdown-item' + (key === currentModel ? ' active' : '');
       div.dataset.model = key;
@@ -108,45 +725,177 @@
     modelDropdown.classList.remove('open');
   }
 
+  function modelLogoLetter(key, label) {
+    if (/deepseek/i.test(label)) return 'R';
+    if (/qwen/i.test(label)) return 'Q';
+    if (/llama/i.test(label)) return 'L';
+    if (/phi/i.test(label)) return 'Φ';
+    if (/mistral/i.test(label)) return 'M';
+    if (/gemma/i.test(label)) return 'G';
+    return (label || 'A')[0].toUpperCase();
+  }
+
+  function findModelById(modelId) {
+    return window.WEBLLM_MODELS?.find(m => m.model_id === modelId) || null;
+  }
+
+  function tagsToTasks(tags) {
+    if (!Array.isArray(tags) || !tags.length) return null;
+    const map = {
+      general: 'общие задачи',
+      code: 'код и дебаг',
+      reasoning: 'сложные рассуждения',
+      analysis: 'анализ данных',
+      ui: 'UI/дизайн',
+      debug: 'исправление ошибок',
+      economy: 'быстрые и лёгкие задачи'
+    };
+    const tasks = tags.map(t => map[t] || t).filter(Boolean);
+    if (!tasks.length) return null;
+    return 'Идеально для: ' + tasks.join(', ');
+  }
+
+  const modelTypeLabels = { auto: 'Auto', economy: 'Economy', standard: 'Standard', pro: 'Pro' };
+
+  function setActiveModel(modelId, label) {
+    const activeModelLabel = document.getElementById('activeModelLabel');
+    const activeModelType = document.getElementById('activeModelType');
+    const activeModelDesc = document.getElementById('activeModelDesc');
+    const modelLogo = document.getElementById('modelLogo');
+    if (!activeModelLabel || !modelLogo) return;
+    const model = findModelById(modelId);
+    const displayLabel = label || model?.label || 'Авто';
+    const key = model?.key || currentModel;
+    const type = model?.color || (currentModel === 'auto' ? 'auto' : 'auto');
+    const color = colorMap[type] || colorMap.auto;
+    activeModelLabel.textContent = displayLabel;
+    if (activeModelType) {
+      activeModelType.textContent = modelTypeLabels[type] || 'Auto';
+      activeModelType.style.background = color + '33';
+      activeModelType.style.color = color;
+    }
+    if (activeModelDesc) {
+      const taskDesc = tagsToTasks(model?.tags || modelPresets[currentModel]?.tags);
+      activeModelDesc.textContent = taskDesc || model?.desc || modelPresets[currentModel]?.desc || 'Автоподбор модели по типу задачи и сложности';
+    }
+    modelLogo.textContent = modelLogoLetter(key, displayLabel);
+    modelLogo.style.background = color;
+    modelLogo.style.boxShadow = `0 0 10px ${color}88`;
+    modelLogo.classList.remove('is-loading');
+    delete modelLogo.dataset.savedLetter;
+    if (!modelLogo.dataset.letter) modelLogo.dataset.letter = modelLogo.textContent;
+  }
+
+  // Превращаем логотип активной модели в сегментный спиннер во время генерации.
+  // После finalizeStreaming возвращаем исходную букву.
+  const MODEL_LOGO_LOADER_HTML = '<span class="model-logo-spin">'
+    + '<svg class="ring" viewBox="0 0 30 30" width="28" height="28">'
+    + '<circle cx="15" cy="15" r="11.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 3"/>'
+    + '</svg>'
+    + '<span class="play"><svg viewBox="0 0 30 30" width="12" height="12"><polygon points="10.5,6 10.5,24 24,15"/></svg></span>'
+    + '</span>';
+  function setLogoLoading(loading) {
+    const el = document.getElementById('modelLogo');
+    if (!el) return;
+    if (loading) {
+      if (!el.dataset.savedLetter) el.dataset.savedLetter = (el.dataset.letter || el.textContent || 'A');
+      el.innerHTML = MODEL_LOGO_LOADER_HTML;
+      el.classList.add('is-loading');
+    } else {
+      el.classList.remove('is-loading');
+      const letter = el.dataset.savedLetter || el.dataset.letter || 'A';
+      el.textContent = letter;
+      delete el.dataset.savedLetter;
+    }
+  }
+
   function updateModelDisplay() {
-    const p = modelPresets[currentModel] || { label: 'Авто', color: 'auto' };
+    const p = modelPresets[currentModel] || { label: 'Авто', color: 'auto', desc: 'Автоподбор модели по типу задачи и сложности' };
+    const color = colorMap[p.color] || colorMap.auto;
     modelLabel.textContent = p.label;
-    modelDot.style.background = colorMap[p.color] || colorMap.auto;
+    modelDot.style.background = color;
+    setActiveModel(p.model_id || currentModel, p.label);
   }
 
   function renderProviders() {
     const providers = [
-      { name: 'OpenRouter', key: 'OPENROUTER_API_KEY', ok: config.hasOpenRouter, models: 'GPT-OSS, Nemotron, Gemma, North', link: 'openrouter.ai/settings' },
-      { name: 'Groq', key: 'GROQ_API_KEY', ok: config.hasGroq, models: 'Llama, Mixtral, Gemma (требует ключ)', link: 'console.groq.com/keys' },
-      { name: 'Ollama', key: 'OLLAMA_HOST', ok: config.hasOllama, models: 'Локальные модели', link: 'ollama.com' }
+      { name: 'WebLLM', models: 'Llama, Phi, Qwen, Mistral, Gemma (в браузере)', link: 'github.com/mlc-ai/web-llm', ok: window.WEBLLM_SUPPORTED },
+      { name: 'Локально (сервер)', models: `Transformers.js · ${config.llmModel || 'CPU'}`, link: 'huggingface.co', ok: config.hasLocalLLM },
+      { name: 'OpenAI-API', models: `DeepSeek / GPT / другое · ${config.openaiBaseURL || 'прокси'}`, link: 'platform.openai.com', ok: config.hasOpenAI }
     ];
-    providerGrid.innerHTML = providers.map(pr => `
+    providerGrid.innerHTML = providers.map(p => `
       <div class="provider-card">
         <div class="info">
-          <div class="name">${pr.name}</div>
-          <div class="models">${pr.models}</div>
-          <div class="link">${pr.link}</div>
+          <div class="name">${p.name}</div>
+          <div class="models">${p.models}</div>
+          <div class="link">${p.link}</div>
         </div>
-        <div class="status ${pr.ok ? 'ok' : 'missing'}">${pr.ok ? 'Подключено' : 'Нужен ключ'}</div>
-      </div>
-    `).join('');
+        <div class="status ${p.ok ? 'ok' : 'missing'}">${p.ok ? 'Готов' : 'Недоступен'}</div>
+      </div>`).join('');
   }
 
   // ── Code change extraction ───────────────────────────
   function extractCodeChanges(content) {
     const changes = [];
-    const codeBlockRegex = /```([a-zA-Z0-9+_-]*)\n([\s\S]*?)```/g;
+    // Тройные бэктики + опц. lang + опц. info-string (где может жить `// file: x`).
+    const codeBlockRegex = /```\s*([a-zA-Z0-9+_-]*)([^\n]*)\n([\s\S]*?)```/g;
     let match;
+    const seenPathCounts = Object.create(null);
+    // Дефолты, если модель забыла явный `// file:` (часто Claude/DeepSeek
+    // отдают чистый ```html`` без маркера).
+    const langToPath = {
+      html: 'index.html', htm: 'index.html', css: 'styles.css',
+      js: 'script.js', javascript: 'script.js', mjs: 'script.js',
+      ts: 'script.ts', typescript: 'script.ts',
+      jsx: 'App.jsx', tsx: 'App.tsx',
+      svelte: 'App.svelte', vue: 'App.vue',
+      json: 'data.json', md: 'README.md', markdown: 'README.md'
+    };
+    const uniquePath = (base) => {
+      const seen = (seenPathCounts[base] = (seenPathCounts[base] || 0) + 1);
+      if (seen === 1) return base;
+      // Повторов одного типа кода в одном ответе обычно не бывает, но на
+      // случай нескольких HTML-страниц / CSS-файлов — нумеруем.
+      if (base === 'index.html') return 'index' + (seen === 2 ? '2' : seen) + '.html';
+      if (base === 'styles.css') return 'styles' + (seen === 2 ? '2' : seen) + '.css';
+      if (base === 'script.js')  return 'script'  + (seen === 2 ? '2' : seen) + '.js';
+      return base.replace(/\.(\w+)$/, (_, e) => (seen === 2 ? '.2' : '.' + seen) + '.' + e);
+    };
     while ((match = codeBlockRegex.exec(content)) !== null) {
-      const lang = match[1].trim();
-      let code = match[2];
-      const firstLine = code.split('\n')[0].trim();
-      const fileMatch = firstLine.match(/(?:\/\/|#|<!--)\s*file:\s*(.+?)(?:\s*-->)?\s*$/i);
-      if (fileMatch) {
-        const filePath = fileMatch[1].trim();
-        code = code.substring(code.indexOf('\n') + 1);
-        changes.push({ path: filePath, content: code, lang });
+      const lang = (match[1] || '').trim().toLowerCase();
+      const infoStr = match[2] || '';
+      let code = match[3];
+      const firstLineEnd = code.indexOf('\n');
+      const firstLine = (firstLineEnd >= 0 ? code.slice(0, firstLineEnd) : code).trim();
+      let filePath = null;
+      // a) маркер внутри info-string: ```html // file: x
+      {
+        const m = infoStr.match(/(?:\/\/|<!--)\s*file:\s*([^\s>]+)(?:\s*-->)?/i)
+              || infoStr.match(/file:\s*([^\s`'"]+\.[a-z0-9]+)/i);
+        if (m) filePath = m[1].replace(/\*+$/, '').trim();
       }
+      // b) маркер `// file: …` / `<!-- file: … -->` / `# file: …` в первой строке блока
+      if (!filePath) {
+        const m = firstLine.match(/(?:\/\/|#|<!--)\s*file:\s*(.+?)(?:\s*-->)?\s*$/i);
+        if (m) filePath = m[1].trim().replace(/\*+$/, '');
+      }
+      if (!filePath) {
+        const m = firstLine.match(/file:\s*([^\s`'"]+\.[a-z0-9]+)/i);
+        if (m) filePath = m[1];
+      }
+      // c) дефолт по языку
+      if (!filePath && langToPath[lang]) filePath = uniquePath(langToPath[lang]);
+      // d) HTML-эвристика по первой строке кода
+      if (!filePath) {
+        const htmlLike = /^<(?:!doctype\s+html|html|head|body|main|section|article|nav|header|footer|aside|form|div|p|h[1-6])/i.test(firstLine);
+        if (htmlLike) filePath = uniquePath('index.html');
+      }
+      if (!filePath) continue;
+      // Если первая строка — маркер-комментарий (а не полезный код), срезаем её.
+      if (firstLineEnd > 0 && /^\s*(?:\/\/|#|<!--)\s*file\s*:/i.test(firstLine)) {
+        code = code.slice(firstLineEnd + 1);
+      }
+      changes.push({ path: filePath, content: code, lang: lang || (filePath.split('.').pop() || '') });
     }
     return changes;
   }
@@ -159,11 +908,19 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ changes })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.applied && data.applied.length) {
-        showChangesNotification(data.applied);
         reloadPreview();
+        invalidateWorkspaceSnapshot();
         loadWorkspaceFiles();
+        // Best-effort backup to Supabase. Failure here never blocks the user.
+        if (window.SupabaseSync?.enabled) {
+          for (let i = 0; i < changes.length; i++) {
+            const safe = data.applied[i];
+            if (!safe) continue;
+            window.SupabaseSync.backupFile(safe, changes[i].content).catch(() => {});
+          }
+        }
       }
       return data;
     } catch (e) {
@@ -171,15 +928,7 @@
     }
   }
 
-  function showChangesNotification(files) {
-    const text = files.length === 1 ? `Изменён файл: ${files[0]}` : `Изменено файлов: ${files.length}`;
-    const note = document.createElement('div');
-    note.className = 'change-notification';
-    note.textContent = text;
-    document.body.appendChild(note);
-    setTimeout(() => note.classList.add('fade-out'), 2500);
-    setTimeout(() => note.remove(), 3000);
-  }
+  // showChangesNotification removed (body-level div was unwanted)
 
   function renderChangesPanel(files) {
     if (!files.length) {
@@ -191,7 +940,7 @@
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
         </svg>
-        <span>${f}</span>
+        <span>${f ? escHtml(String(f.name || f)) : ''}</span>
       </div>
     `).join('');
   }
@@ -202,14 +951,36 @@
   }
 
   // ── Messages ──────────────────────────────────────────
-  function appendUserMsg(content, ts) {
+  function appendUserMsg(content, ts, attachments) {
     const div = document.createElement('div');
     div.className = 'msg-user';
+    // Превью картинок — сразу под метаданными, до текста. Современный UX
+    // (как в Replit Agent / ChatGPT): пользователь видит то, что отправил.
+    const imgs = (attachments || []).filter(a => a && a.dataUrl);
+    const files = (attachments || []).filter(a => a && !a.dataUrl);
+    const attachHtml = imgs.length || files.length
+      ? `<div class="msg-user-attach">`
+          + imgs.map(a => {
+              const fname = (a.name || a.path || 'image').split('/').pop();
+              return `<div class="msg-user-attach-cell" title="${escHtml(a.path || fname)}">`
+                + `<img src="${a.dataUrl}" alt="${escHtml(fname)}">`
+                + `<span>${escHtml(fname)}</span></div>`;
+            }).join('')
+          + files.map(a => {
+              const fname = (a.name || a.path || 'file').split('/').pop();
+              const sz = a.size < 1024 ? a.size + ' Б' : Math.round(a.size / 1024) + ' КБ';
+              return `<div class="msg-user-attach-cell file" title="${escHtml(a.path || fname)}">`
+                + `<div class="msg-user-attach-icon">📎</div>`
+                + `<span>${escHtml(fname)} <em>${sz}</em></span></div>`;
+            }).join('')
+        + `</div>`
+      : '';
     div.innerHTML = `
       <div class="msg-user-meta">
         <span class="msg-user-name">Вы</span>
         <span class="msg-user-time">${formatTime(ts)}</span>
       </div>
+      ${attachHtml}
       <div class="msg-user-bubble">${escHtml(content)}</div>`;
     removeEmptyState();
     messagesEl.appendChild(div);
@@ -222,13 +993,20 @@
     div.innerHTML = `
       <div class="msg-agent-status">
         <div class="status-icon"><div class="spinner"></div></div>
-        <span>Думаю...</span>
+        <span class="status-text">Думаю…</span>
         ${modelName ? `<span class="model-tag">${modelName}</span>` : ''}
-      </div>`;
+      </div>
+      <div class="load-bar"><div class="load-bar-fill"></div></div>`;
     messagesEl.appendChild(div);
     scrollBottom();
+    setLogoLoading(true);
+    document.getElementById('modelLoader')?.classList.add('show');
     return div;
   }
+
+  // Показываем/прячем сегментный спиннер рядом с логотипом активной модели.
+  function showModelLoader() { document.getElementById('modelLoader')?.classList.add('show'); }
+  function hideModelLoader() { document.getElementById('modelLoader')?.classList.remove('show'); }
 
   function resolveThinking(thinkingId, content, worked, model, error) {
     const div = document.getElementById(`thinking-${thinkingId}`);
@@ -297,61 +1075,611 @@
     return html;
   }
 
+  // ── Оркестратор (gpt-5-mini как маршрутизатор) ────────────────
+  // Список моделей, реально доступных на базовом тарифе vsegpt
+  // (gpt-5.4-pro-high, claude-opus-4.6, deepseek-v4-pro и v3.2-alt-thinking
+  // требуют upgrade — проверено эмпирически).
+  // coding:true = сильные на современном коде/UI/архитектуре (агентская работа).
+  const ORCHESTRATOR_MODELS = [
+    { id: 'anthropic/claude-sonnet-4.6-thinking-high', tier: 'mid',     coding: true,  vision: true },
+    { id: 'deepseek/deepseek-v4-flash-thinking',       tier: 'mid',     coding: true,  vision: false },
+    // openai/o3 — временно отключён провайдером, поэтому в списке только безопасные альтернативы.
+    { id: 'deepseek/deepseek-coder',                  tier: 'mid',     coding: true,  vision: false },
+    { id: 'deepseek/deepseek-r1',                     tier: 'reasoning', coding: false, vision: false },
+    { id: 'openai/gpt-5-mini',                        tier: 'light',   coding: false, vision: true },
+    { id: 'anthropic/claude-3-haiku',                 tier: 'light',   coding: false, vision: true },
+    { id: 'deepseek/deepseek-chat',                   tier: 'light',   coding: false, vision: false }
+  ];
+
+  function orchestratorPrompt(mode) {
+    const list = ORCHESTRATOR_MODELS.map(m => {
+      const tag = m.coding ? '(coding)' : m.tier === 'reasoning' ? '(reasoning)' : m.tier === 'mid' ? '(mid)' : '(light)';
+      return '- ' + m.id + ' ' + tag;
+    }).join('\n');
+    return 'Ты лёгкий маршрутизатор (gpt-5-mini). Реши, что делать с запросом.\n'
+      + 'Контекст: пользователь часто разрабатывает современные приложения (код, UI, дебаг, архитектура). Для таких задач выбирай модели с меткой coding.\n'
+      + 'Действия — верни ТОЛЬКО один JSON-объект (без prose, без тройных бэктиков):\n'
+      + (mode === 'multi'
+        ? '1) {"action":"direct","answer":"<короткий ответ>"} — простая задача.\n2) {"action":"multi","models":["<id>","<id>"]} — сложная задача (архитектура, многошаговый код, рассуждения): выбери 2–3 id.\n'
+        : '1) {"action":"direct","answer":"<короткий ответ>"} — простая задача.\n2) {"action":"delegate","model":"<id>"} — задача среднего уровня (один id).\n')
+      + 'Список доступных id:\n' + list;
+  }
+
+  async function callOpenAI(model, messages) {
+    const resp = await fetch('/api/chat/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, max_tokens: 4096 })
+    });
+    if (!resp.ok) {
+      let detail = '';
+      try { detail = (await resp.text()).slice(0, 200); } catch {}
+      throw new Error('HTTP ' + resp.status + (detail ? ' · ' + detail : ''));
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '', full = '', errorMsg = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.search(/\r?\n\r?\n/)) !== -1) {
+        const event = buf.slice(0, sep);
+        buf = buf.slice(sep).replace(/^\r?\n\r?\n/, '');
+        for (const rawLine of event.split(/\r?\n/)) {
+          const line = rawLine.trim();
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (!data || data === '[DONE]') continue;
+          let parsed;
+          try { parsed = JSON.parse(data); } catch { continue; }
+          // Апстрим-ошибка в потоке (например, Rate-limit, e-mail not confirmed и т.п.)
+          if (parsed && parsed.error) {
+            errorMsg = (parsed.error && (parsed.error.message || parsed.error)) || JSON.stringify(parsed.error);
+            continue;
+          }
+          // Некоторые модели (DeepSeek-V4, gpt-5-mini с включённым reasoning) прячут
+          // часть ответа в `reasoning_content`, при этом `content` может быть null.
+          // Сливаем оба поля — чтобы роутер/делегат никогда не возвращал пустоту
+          // из-за внутреннего reasoning.
+          const reasonDelta = parsed.choices?.[0]?.delta?.reasoning_content || '';
+          const delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.text || '';
+          if (reasonDelta) full += reasonDelta;
+          if (delta) full += delta;
+        }
+      }
+    }
+    return { text: full, error: errorMsg, model };
+  }
+
+  async function runOrchestrator(content, mode, onStep, attachments) {
+    // Маршрутизатор: deepseek/deepseek-chat — НЕ тратит токены на скрытое «reasoning»
+    // (в отличие от gpt-5-mini, который блюл все 80 токенов на encrypted reasoning
+    // и не выдавал JSON). Проверено эмпирически через прямой curl.
+    const routerModel = 'deepseek/deepseek-chat';
+    // Снимок проекта нужен только экспертам и синтезатору — роутер не должен
+    // тратить токены на чужой код, его задача только классифицировать запрос.
+    const ctx = await buildWorkspaceContextMessages();
+    const delegateMessages = (id) => {
+      const supportsVision = !!ORCHESTRATOR_MODELS.find(m => m.id === id)?.vision;
+      return [
+        { role: 'system', content: LLM_SYSTEM_PROMPT + '\n\n(Запрос делегирован оркестратором модели ' + id + '.)' },
+        ...ctx,
+        { role: 'user', content: userContentFor(content, attachments, supportsVision) }
+      ];
+    };
+    onStep && onStep('Маршрутизация (gpt-5-mini)…');
+    let routerResp = '';
+    let routerR;
+    try {
+      routerR = await callOpenAI(routerModel, [
+        { role: 'system', content: orchestratorPrompt(mode) },
+        { role: 'user', content: userContentFor(content, attachments, false) }
+      ]);
+    } catch (err) {
+      onStep && onStep('Маршрутизатор недоступен: ' + err.message);
+      return { text: '', error: 'Маршрутизатор gpt-5-mini: ' + err.message, model: routerModel };
+    }
+    if (routerR.error) {
+      onStep && onStep('Маршрутизатор: ' + routerR.error);
+      return { text: '', error: routerR.error, model: routerModel };
+    }
+    routerResp = routerR.text;
+    let decision = {};
+    try {
+      const m = routerResp.match(/\{[\s\S]*?\}/);
+      decision = JSON.parse(m ? m[0] : routerResp);
+    } catch {}
+    if (decision.action === 'direct') {
+      onStep && onStep('Прямой ответ маршрутизатора');
+      return { text: decision.answer || routerResp, model: routerModel };
+    }
+    if (decision.action === 'delegate') {
+      const id = decision.model || 'deepseek/deepseek-coder';
+      if (!ORCHESTRATOR_MODELS.find(m => m.id === id)) {
+        onStep && onStep('Маршрутизатор выбрал неизвестную модель: ' + id + ' — возвращаю прямой ответ');
+        return { text: routerResp, model: routerModel };
+      }
+      onStep && onStep('Делегирование → ' + id);
+      let r;
+      try { r = await callOpenAI(id, delegateMessages(id)); }
+      catch (err) {
+        onStep && onStep('Делегат ' + id + ' ошибка: ' + err.message);
+        return { text: '', error: id + ': ' + err.message, model: id };
+      }
+      if (r.error) {
+        onStep && onStep('Делегат ' + id + ': ' + r.error);
+        return { text: '', error: id + ': ' + r.error, model: id };
+      }
+      return { text: r.text, model: id };
+    }
+    if (decision.action === 'multi') {
+      let ids = Array.isArray(decision.models) ? decision.models : [];
+      ids = ids.filter(id => ORCHESTRATOR_MODELS.find(m => m.id === id)).slice(0, 3);
+      if (!ids.length) ids = ['deepseek/deepseek-r1', 'deepseek/deepseek-v4-flash-thinking', 'anthropic/claude-sonnet-4.6-thinking-high'];
+      onStep && onStep('Параллельный опрос ' + ids.length + ' моделей…');
+      const results = await Promise.all(ids.map(async id => {
+        try {
+          const r = await callOpenAI(id, delegateMessages(id));
+          if (r.error) return { id, error: r.error };
+          return { id, text: r.text };
+        } catch (err) {
+          return { id, error: err.message };
+        }
+      }));
+      const ok = results.filter(r => r.text && !r.error);
+      const failed = results.filter(r => r.error);
+      if (failed.length) {
+        onStep && onStep('Часть моделей вернула ошибку: ' + failed.map(f => f.id + ' (' + f.error + ')').join(', '));
+      }
+      if (!ok.length) {
+        return { text: '', error: 'Все модели в multi-опросе упали: ' + failed.map(f => f.id + ' [' + f.error + ']').join('; '), model: ids.join(',') };
+      }
+      // Записываем файлы из каждого экспертного ответа ещё ДО синтеза,
+      // потому что синтезатор может переписать и потерять маркеры `// file:`.
+      try {
+        const allChanges = [];
+        for (const r of ok) {
+          const ch = extractCodeChanges(r.text);
+          if (ch.length) {
+            onStep && onStep('Записываю файлы из ' + r.id + ': ' + ch.map(c => c.path).join(', '));
+            allChanges.push(...ch);
+          }
+        }
+        if (allChanges.length) await applyCodeChanges(allChanges);
+      } catch (e) {
+        console.warn('[orchestrator] pre-write failed:', e);
+      }
+      const blocks = ok.map(r => '### ' + r.id + '\n' + r.text).join('\n\n---\n\n');
+      onStep && onStep('Синтез финального ответа…');
+      let synth;
+      try { synth = await callOpenAI(routerModel, [
+        { role: 'system', content: 'Синтезатор. ОБЯЗАТЕЛЬНО сохраняй все блоки кода с пометкой `// file: path`, `<!-- file: path -->` или подобные — КАК ЕСТЬ, не перефразируй и не теряй. Объедини лучшие части ответов в один точный ответ на русском. Не упоминай, что было несколько моделей.' },
+        ...ctx,
+        { role: 'user', content: userContentFor('Запрос:\n<<<\n' + content + '>>>\n\nОтветы:\n' + blocks, attachments, false) }
+      ]); }
+      catch (err) {
+        onStep && onStep('Синтез упал: ' + err.message);
+        return { text: ok[0].text, model: ok[0].id };
+      }
+      if (synth.error) {
+        onStep && onStep('Синтез: ' + synth.error);
+        return { text: ok[0].text, error: 'Синтез: ' + synth.error, model: synth.model };
+      }
+      return { text: synth.text, model: routerModel };
+    }
+    return { text: routerResp, model: routerModel };
+  }
+
   async function sendMessage() {
-    const content = inputEl.value.trim();
+    const rawContent = inputEl.value.trim();
+    const attachments = (window.__getPendingAttachments && window.__getPendingAttachments()) || [];
+    // Просто текст пользователя — без префикса со списком путей. Файлы уже
+    // отрисованы в пузыре сообщения как превью, а их содержимое попадает в
+    // модель через workspace-snapshot (system-message). Повторять пути в
+    // самом запросе — шум.
+    const content = rawContent;
     if (!content || sending) return;
+    // Снимем чипы сразу — повторно слать одни и те же вложения не надо.
+    if (attachments.length) {
+      window.__renderAttachChips && window.__renderAttachChips([]);
+      window.__clearPendingAttachments && window.__clearPendingAttachments();
+    }
+
+    const selectedPreset = modelPresets[currentModel] || modelPresets.auto || { name: 'Авто' };
+
+    // DeepSeek / local LLM работают без WebGPU
+    const isApiModel = selectedPreset.openai || selectedPreset.local;
+    if (!window.WEBLLM_SUPPORTED && !isApiModel) {
+      appendAgentMsg('Для работы чата нужен браузер с WebGPU (Chrome 113+ или Edge) или выберите DeepSeek / Локально.', 0, 'Система', true);
+      sending = false;
+      sendBtn.disabled = false;
+      setStopVisible(false);
+      return;
+    }
 
     sending = true;
     sendBtn.disabled = true;
+    if (chatAbort) chatAbort.abort();
+    chatAbort = new AbortController();
+    setStopVisible(true);
     inputEl.value = '';
     autoResize();
 
-    appendUserMsg(content, Date.now());
+    appendUserMsg(content, Date.now(), attachments);
+    saveMessages('user', content, { model: currentModel, task: window.WEBLLM_classify?.(content)?.task }, attachments);
     scrollBottom();
 
-    const selectedPreset = modelPresets[currentModel] || modelPresets.auto || { name: 'Авто' };
     const thinkEl = appendThinking('temp', selectedPreset.name);
-    thinkEl.id = 'thinking-temp';
+    thinkEl.id = 'thinking-stream';
+
+    let modelId;
+    let autoInfo = null;
+    let decoration = selectedPreset.name;
 
     try {
-      const res = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, model: currentModel })
-      });
-      const data = await res.json();
-      if (res.status !== 200) throw new Error(data.error || 'Ошибка');
-      thinkEl.id = `thinking-${data.thinkingId}`;
-      pollReply(data.thinkingId, data.replyId);
-    } catch (e) {
-      thinkEl.remove();
-      appendAgentMsg('Ошибка: ' + e.message, 0, 'Система', true);
+      // Choose model: explicit preset, or auto-pick by task × complexity.
+      if (currentModel === 'auto') {
+        autoInfo = await llm.pickAuto(content);
+        modelId = autoInfo.model_id;
+        decoration = `Авто: ${autoInfo.label}`;
+        setActiveModel(modelId, autoInfo.label);
+      } else {
+        modelId = (selectedPreset.model_id) || (window.WEBLLM_MODELS?.find((m) => m && m.key === currentModel) || {}).model_id || null;
+        setActiveModel(modelId, selectedPreset.name);
+      }
+
+      const labelEl = thinkEl.querySelector('.status-text');
+      updateThinkingModel(thinkEl, decoration);
+
+      const history = await loadHistory();
+      let full = '';
+      const start = Date.now();
+
+      // Try the chosen model, and on shader-compile failure walk through a chain of
+      // progressively lighter models until one compiles or the queue runs out.
+      // TVM emits different WGSL kernels per model; some hit driver bugs like
+      // "index_kernel" compute-stage errors on integrated / older GPUs.
+      const isShaderError = (err) => {
+        const s = String(err?.message || err || '');
+        return /ShaderModule|index_kernel|Invalid\s*Shader|WGSL|compute stage|GPU/i.test(s);
+      };
+      const fallbackChainKeys = ['qwen3-1.7b', 'llama-3.2-1b', 'qwen-coder-3b'];
+      const fallbackModels = fallbackChainKeys
+        .map(k => window.WEBLLM_MODELS?.find((m) => m && m.key === k))
+        .filter(Boolean);
+      // Build a queue of fallback model_ids, excluding the originally chosen one.
+      const fallbackQueue = fallbackModels
+        .map(m => m.model_id)
+        .filter(id => id !== modelId);
+      const triedModelIds = [modelId];
+
+      // ── Local server-side LLM (Transformers.js) ────────────────
+      if (selectedPreset.local || currentModel === 'local') {
+        if (labelEl) labelEl.textContent = 'Модель загружается на сервере…';
+        try {
+          const contextMessages = await buildWorkspaceContextMessages();
+          const resp = await fetch('/api/chat/local', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [
+                { role: 'system', content: LLM_SYSTEM_PROMPT },
+                ...contextMessages,
+                ...history.map(m => ({ role: m.role, content: m.content }))
+              ],
+              max_tokens: 2048
+            }),
+            signal: chatAbort ? chatAbort.signal : undefined
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          if (data.error) throw new Error(data.error);
+          full = data.reply || '';
+          if (full) {
+            updateStreaming();
+          }
+          const elapsed = Math.max(1, Math.round((Date.now() - start) / 1000));
+          finalizeStreaming(thinkEl, full, elapsed, decoration, false);
+          saveMessages('assistant', full, { model: 'local' });
+          const changes = extractCodeChanges(full);
+          if (changes.length) await applyCodeChanges(changes);
+          sending = false;
+          sendBtn.disabled = false;
+          return;
+        } catch (e) {
+          sending = false;
+          sendBtn.disabled = false;
+          console.error(e);
+          finalizeStreaming(thinkEl, 'Ошибка: ' + (e.message || e), 0, 'Локально', true);
+          return;
+        }
+      }
+
+      // ── OpenAI-compatible API: оркестратор (router) или прямой стрим ────
+      if (selectedPreset.openai) {
+        if (labelEl) labelEl.textContent = 'Внешний API…';
+        try {
+          // ── Оркестратор (gpt-5-mini сам решает: direct / delegate / multi).
+          if (selectedPreset.router) {
+            const reply = await runOrchestrator(content, selectedPreset.router, (status) => {
+              if (labelEl) labelEl.textContent = status;
+              updateThinkingModel(thinkEl, decoration + ' — ' + status);
+            }, attachments);
+            if (reply && reply.error) {
+              // Показываем ошибку как содержимое пузыря — иначе выглядит как «пустой ответ».
+              full = '⚠️ ' + reply.error;
+            } else {
+              full = (reply && reply.text) || '';
+            }
+          } else {
+            // ── Прямой SSE-стрим к выбранной модели ────────────────
+            // Шлём реальный id модели у провайдера (deepseek-chat / deepseek-reasoner),
+            // а не UI-ключ (openai-chat / deepseek-reasoner) — иначе upstream вернёт model-not-found.
+            const apiModel = selectedPreset.apiModel || currentModel;
+          const contextMessages = await buildWorkspaceContextMessages();
+          const resp = await fetch('/api/chat/openai', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: apiModel,
+              messages: [
+                { role: 'system', content: LLM_SYSTEM_PROMPT },
+                ...contextMessages,
+                ...history.map((m, i, arr) => {
+                  const last = i === arr.length - 1 && m.role === 'user';
+                  const content = (last && attachments.length)
+                    ? attachImagesToUser(m.content, attachments)
+                    : m.content;
+                  return { role: m.role, content };
+                })
+              ],
+              max_tokens: 4096
+            }),
+            signal: chatAbort ? chatAbort.signal : undefined
+          });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          // SSE-буфер: ивенты могут приходить кусками между чанками, а DeepSeek шлёт \r\n.
+          let buf = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            // Режем по границе ивента (пустая строка между \n\n / \r\n\r\n)
+            let sep;
+            while ((sep = buf.search(/\r?\n\r?\n/)) !== -1) {
+              const event = buf.slice(0, sep);
+              buf = buf.slice(sep).replace(/^\r?\n\r?\n/, '');
+              for (const rawLine of event.split(/\r?\n/)) {
+                const line = rawLine.trim();
+                if (!line.startsWith('data:')) continue;
+                const data = line.slice(5).trim();
+                if (!data || data === '[DONE]') continue;
+                let parsed;
+                try { parsed = JSON.parse(data); }
+                catch (err) { console.warn('[sse] bad chunk:', data.slice(0, 120), err.message); continue; }
+                const delta = parsed.choices?.[0]?.delta?.content
+                           || parsed.choices?.[0]?.text
+                           || '';
+                if (delta) full += delta;
+                const finish = parsed.choices?.[0]?.finish_reason;
+                if (finish === 'stop' || finish === 'length') break;
+              }
+            }
+          }
+          // в конце — добрать остаток буфера на случай последнего ивента без пустой строки
+          if (buf.trim()) {
+            for (const rawLine of buf.split(/\r?\n/)) {
+              const line = rawLine.trim();
+              if (!line.startsWith('data:')) continue;
+              const data = line.slice(5).trim();
+              if (!data || data === '[DONE]') continue;
+              try {
+                const parsed = JSON.parse(data);
+                const delta = parsed.choices?.[0]?.delta?.content
+                           || parsed.choices?.[0]?.text
+                           || '';
+                if (delta) full += delta;
+              } catch {}
+            }
+          }
+          }
+          if (full) updateStreaming();
+          const elapsed = Math.max(1, Math.round((Date.now() - start) / 1000));
+          finalizeStreaming(thinkEl, full, elapsed, decoration, false);
+          saveMessages('assistant', full, { model: currentModel });
+          const changes = extractCodeChanges(full);
+          if (changes.length) await applyCodeChanges(changes);
+        } catch (e) {
+          console.error(e);
+          finalizeStreaming(thinkEl, 'Ошибка DeepSeek: ' + (e.message || e), 0, decoration, true);
+        }
+        sending = false;
+        sendBtn.disabled = false;
+        return;
+      }
+
+      // function-объявления (а не const-стрелки), чтобы они были доступны
+      // из orchestrator-ветки в этом же try-блоке раньше по тексту, чем они
+      // объявлены ниже — иначе TDZ «Cannot access 'updateStreaming' before initialization».
+      function updateLoading(report) {
+        if (!labelEl) return;
+        const pct = report?.progress != null ? ` (${Math.round(report.progress * 100)}%)` : '';
+        labelEl.textContent = `Загружаю ${decoration}${pct}…`;
+        const bar = thinkEl.querySelector('.load-bar-fill');
+        if (bar && report?.progress != null) bar.style.width = `${Math.round(report.progress * 100)}%`;
+      }
+      function updateStreaming() {
+        if (labelEl) labelEl.textContent = `Генерирую ответ… · ${full.length} симв.`;
+        replaceStreamingContent(thinkEl, full);
+        scrollBottom();
+      }
+
+      let exhausted = false;
+      while (true) {
+        try {
+          await llm.ensureEngine(modelId, updateLoading);
+          if (labelEl) labelEl.textContent = 'Генерирую ответ…';
+          for await (const delta of llm.stream(modelId, history)) {
+            full += delta;
+            updateStreaming();
+          }
+          break; // success — exit chain
+        } catch (err) {
+          if (!isShaderError(err)) throw err;
+          // Not a shader error — propagate immediately
+          const nextId = fallbackQueue.shift();
+          if (!nextId) {
+            exhausted = true;
+            break;
+          }
+          const nextModel = fallbackModels.find(m => m.model_id === nextId);
+          console.warn('Shader compile failed for', modelId, '— falling back to', nextModel.label);
+          if (labelEl) labelEl.textContent = `Compute shader не скомпилировался. Перехожу на ${nextModel.label}…`;
+          modelId = nextId;
+          decoration = `Tier-${triedModelIds.length}: ${nextModel.label}`;
+          setActiveModel(modelId, nextModel.label);
+          updateThinkingModel(thinkEl, decoration);
+          triedModelIds.push(nextId);
+        }
+      }
+
+      if (exhausted) {
+        const triedList = triedModelIds.map((id, i) => `  • ${i === 0 ? '[auto]' : '[Tier-' + i + ']'} \`${id}\``).join('\n');
+        const msg = [
+          '🚫 **GPU не поддерживает WGSL compute-shader** — все модели выдали один и тот же shader-ошибку.',
+          '',
+          'Цепочка попыток:',
+          triedList,
+          '',
+          '**Что можно сделать:**',
+          '• Откройте Chrome / Edge Beta ≥ 121 (там свежий WGSL-валидатор)',
+          '• Перезапустите Chrome с флагами `--use-angle=vulkan --enable-features=Vulkan,WebGPU`',
+          '• Проверьте, что WebGPU включён в `chrome://flags/#enable-webgpu-developer-features`',
+          '• Или попробуйте на машине с дискретной NVIDIA / AMD'
+        ].join('\n');
+        if (labelEl) labelEl.textContent = 'GPU несовместима с WGSL compute';
+        throw new Error(msg);
+      }
+
+      const elapsed = Math.max(1, Math.round((Date.now() - start) / 1000));
+      finalizeStreaming(thinkEl, full, elapsed, decoration, false);
+      const cls = window.WEBLLM_classify?.(content) || {};
+      saveMessages('assistant', full, { model: modelId, task: cls.task, complexity: cls.complexity });
+
+      if (window.SupabaseSync?.enabled && currentModel === 'auto' && autoInfo) {
+        window.SupabaseSync.markModelLoaded(modelId, autoInfo.label, autoInfo.vram).catch(() => {});
+      }
+
+      const changes = extractCodeChanges(full);
+      if (changes.length) await applyCodeChanges(changes);
+
       sending = false;
       sendBtn.disabled = false;
+      setStopVisible(false);
+    } catch (e) {
+      console.error(e);
+      finalizeStreaming(thinkEl, 'Ошибка: ' + (e.message || e), 0, 'Локально', true);
+      sending = false;
+      sendBtn.disabled = false;
+      setStopVisible(false);
     }
   }
 
-  async function pollReply(thinkingId, replyId) {
-    const interval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/messages/${replyId}`);
-        if (res.status === 200) {
-          const msg = await res.json();
-          clearInterval(interval);
-          resolveThinking(thinkingId, msg.content, msg.worked, msg.model, msg.error);
-          if (!msg.error) {
-            const changes = extractCodeChanges(msg.content);
-            if (changes.length) await applyCodeChanges(changes);
-          }
-          sending = false;
-          sendBtn.disabled = false;
-        }
-      } catch (e) {
-        clearInterval(interval);
-        sending = false;
-        sendBtn.disabled = false;
+  function replaceStreamingContent(bubbleEl, text) {
+    let body = bubbleEl.querySelector('.msg-agent-bubble');
+    if (!body) {
+      body = document.createElement('div');
+      body.className = 'msg-agent-bubble';
+      const status = bubbleEl.querySelector('.msg-agent-status');
+      if (status) status.after(body);
+      else bubbleEl.appendChild(body);
+    }
+    body.innerHTML = renderMarkdown(text);
+  }
+
+  function updateThinkingModel(bubbleEl, modelName) {
+    const tag = bubbleEl.querySelector('.model-tag');
+    if (tag) tag.textContent = modelName;
+    else {
+      const status = bubbleEl.querySelector('.msg-agent-status');
+      if (status) {
+        const span = document.createElement('span');
+        span.className = 'model-tag';
+        span.textContent = modelName;
+        status.appendChild(span);
       }
-    }, 300);
+    }
+  }
+
+  function finalizeStreaming(bubbleEl, content, worked, modelName, error) {
+    bubbleEl.className = 'msg-agent' + (error ? ' error-bubble' : '');
+    setLogoLoading(false);
+    hideModelLoader();
+    bubbleEl.innerHTML = `
+      <div class="msg-agent-status">
+        <div class="status-icon">
+          <div class="check-icon">
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+              <path d="M1.5 4l2 2 3-3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+        </div>
+        <span>Подтверждение присутствия</span>
+        ${modelName ? `<span class="model-tag">${modelName}</span>` : ''}
+      </div>
+      <div class="msg-agent-bubble">${renderMarkdown(content)}</div>
+      <div class="worked-label">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+          <circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1"/>
+          <path d="M5 3v2l1.5 1" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+        </svg>
+        Работал ${worked} сек
+      </div>`;
+    scrollBottom();
+  }
+
+  async function loadHistory() {
+    if (window.SupabaseSync?.enabled) {
+      try { return await window.SupabaseSync.loadHistory(20); }
+      catch (e) { console.warn('Sync loadHistory failed, using local', e); }
+    }
+    try {
+      const all = JSON.parse(localStorage.getItem('chat_history') || '[]');
+      return all.slice(-20);
+    } catch { return []; }
+  }
+
+  function saveMessages(role, content, meta, attachments) {
+    // Always update local cache so we never block on network.
+    try {
+      const all = JSON.parse(localStorage.getItem('chat_history') || '[]');
+      const entry = { role, content };
+      // Прикреплённые файлы записываем рядом с сообщением (без dataUrl —
+      // он пережимает localStorage на большие картинки). После перезагрузки
+      // страница подтянет dataUrl из workspace — см. reloadHistoryAttaches.
+      if (role === 'user' && attachments && attachments.length) {
+        entry.attachments = attachments.map(a => ({
+          path: a.path, name: a.name, type: a.type, size: a.size
+        }));
+      }
+      all.push(entry);
+      localStorage.setItem('chat_history', JSON.stringify(all.slice(-40)));
+    } catch {}
+    // Then mirror to Supabase if configured (fire-and-forget).
+    if (window.SupabaseSync?.enabled) {
+      window.SupabaseSync.pushMessage(role, content, meta).catch(() => {});
+    }
+  }
+
+  function clearLocalHistory() {
+    localStorage.removeItem('chat_history');
+    if (window.SupabaseSync?.enabled) {
+      localStorage.removeItem('supabase_session_id');
+    }
   }
 
   function escHtml(str) {
@@ -366,6 +1694,7 @@
   function scrollBottom() { requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }); }
   function removeEmptyState() { messagesEl.querySelector('.empty-chat')?.remove(); }
   function autoResize() { inputEl.style.height = 'auto'; inputEl.style.height = Math.min(inputEl.scrollHeight, 180) + 'px'; }
+  function countModels() { return (window.WEBLLM_PRESETS && Object.keys(window.WEBLLM_PRESETS).length) || 0; }
 
   sendBtn.addEventListener('click', sendMessage);
   inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
@@ -373,10 +1702,7 @@
 
   tabs.forEach(tab => tab.addEventListener('click', () => {
     const t = tab.dataset.tab; if (t === 'new') return;
-    tabs.forEach(x => x.classList.remove('active'));
-    tab.classList.add('active');
-    if (t === 'preview') { toolsView.classList.remove('active'); previewView.classList.add('active'); }
-    else { previewView.classList.remove('active'); toolsView.classList.add('active'); }
+    setRightTab(t);
   }));
 
   modelSelector.addEventListener('click', e => {
@@ -399,45 +1725,41 @@
     document.querySelector('.toggle-label').textContent = planCheck.checked ? 'Планировщик ✓' : 'Планировщик';
   });
 
-  document.getElementById('runBtn').addEventListener('click', () => {
-    reloadPreview();
-    tabs.forEach(x => x.classList.remove('active'));
-    document.querySelector('[data-tab="preview"]').classList.add('active');
-    toolsView.classList.remove('active');
-    previewView.classList.add('active');
-  });
+  // Re-run preview when user clicks "Run" / Publish / Canvas (no broken reference)
+  const switchToPreview = () => {
+    if (typeof reloadPreview === 'function') reloadPreview();
+    setRightTab('preview');
+  };
+  document.getElementById('canvasPill')?.addEventListener('click', () => setRightTab('tools'));
 
-  previewRefresh.addEventListener('click', reloadPreview);
-  previewClear.addEventListener('click', async () => {
-    if (!confirm('Очистить workspace?')) return;
-    await fetch('/api/workspace/clear', { method: 'POST' });
-    reloadPreview();
-    loadWorkspaceFiles();
-  });
-
+  // Project-name dblclick-rename lives in settings panel now (topbar no longer has it)
   const nameEl = document.getElementById('projectName');
-  nameEl.addEventListener('dblclick', () => {
-    const input = document.createElement('input');
-    input.value = nameEl.textContent;
-    input.style.cssText = `background:transparent;border:none;border-bottom:1px solid var(--accent);color:var(--text);font-size:13px;font-weight:500;width:120px;outline:none;`;
-    nameEl.replaceWith(input);
-    input.focus(); input.select();
-    const done = () => {
-      const span = document.createElement('span');
-      span.id = 'projectName'; span.className = 'project-name'; span.textContent = input.value || 'МойПроект';
-      span.title = 'Двойной клик для редактирования';
-      input.replaceWith(span);
-      span.addEventListener('dblclick', nameEl.ondblclick);
-      document.title = span.textContent + ' — Агент';
-    };
-    input.addEventListener('blur', done);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
-  });
+  if (nameEl) {
+    nameEl.addEventListener('dblclick', () => {
+      const input = document.createElement('input');
+      input.value = nameEl.textContent;
+      input.style.cssText = `background:transparent;border:none;border-bottom:1px solid var(--accent);color:var(--text);font-size:13px;font-weight:500;width:120px;outline:none;`;
+      nameEl.replaceWith(input);
+      input.focus(); input.select();
+      const done = () => {
+        const span = document.createElement('span');
+        span.id = 'projectName'; span.className = 'project-name'; span.textContent = input.value || 'МойПроект';
+        span.title = 'Двойной клик для редактирования';
+        input.replaceWith(span);
+        span.addEventListener('dblclick', nameEl.ondblclick);
+        document.title = span.textContent + ' — Агент';
+      };
+      input.addEventListener('blur', done);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); });
+    });
+  }
 
   document.addEventListener('keydown', e => {
     if (e.ctrlKey && e.key === 'l') {
       e.preventDefault();
-      fetch('/api/messages', { method: 'DELETE' }).then(() => { messagesEl.innerHTML = ''; showEmptyState(); });
+      clearLocalHistory();
+      messagesEl.innerHTML = '';
+      showEmptyState();
     }
   });
 
@@ -448,29 +1770,256 @@
   scanBtn.addEventListener('click', async () => {
     scanBtn.disabled = true;
     scanBtn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:1.5px;"></div> Проверка...`;
-    scanStatus.textContent = 'Проверяю OpenRouter...';
+    scanStatus.textContent = 'Проверяю WebGPU...';
     try {
-      const res = await fetch('/api/config');
-      const cfg = await res.json();
-      config = cfg;
-      modelPresets = cfg.presets || {};
+      const supported = window.WEBLLM_SUPPORTED;
+      const presets = (window.WEBLLM_PRESETS && Object.keys(window.WEBLLM_PRESETS).length) || 0;
+      modelPresets = window.WEBLLM_PRESETS || {};
       renderModelDropdown();
       renderProviders();
       updateModelDisplay();
-      if (!cfg.hasOpenRouter) {
-        scanStatus.innerHTML = 'OpenRouter не подключен. Добавьте OPENROUTER_API_KEY в секреты.';
+      if (supported) {
+        scanStatus.innerHTML = `WebGPU поддерживается.<br>Доступно моделей: ${presets}. Скачиваются один раз (1–6 ГБ), потом работают офлайн.`;
       } else {
-        scanStatus.innerHTML = `OpenRouter подключен.<br>Доступно моделей: ${Object.keys(cfg.presets).length}.`;
+        scanStatus.innerHTML = 'WebGPU недоступен. Откройте в браузере Chrome 113+ или Edge 113+.';
       }
     } catch (e) {
       scanStatus.textContent = 'Ошибка проверки: ' + e.message;
     } finally {
       scanBtn.disabled = false;
-      scanBtn.textContent = 'Проверить провайдеров';
+      scanBtn.textContent = 'Проверить WebGPU';
     }
   });
 
+  // ── Прикрепление файлов / картинок / paste-скриншотов ────────────
+  // Поддерживает:
+  //   • 📎 «скрепка» — любой файл (открывает обычный file picker)
+  //   • 🖼️ «картинка» — только image/* (открывает image picker)
+  //   • Ctrl+V — перехватываем только картинки из буфера; текст вставляется обычным путём
+  // Все вложения уходят в /workspace/attached/, чипы добавляются над textarea.
+  // При отправке текст запроса получает префикс со списком путей; сами файлы
+  // модель видит через snapshot, который обновляется сразу после записи.
+  (function bindAttachments() {
+    const inputBox = document.querySelector('.input-box');
+    if (!inputBox) return;
+
+    const filePicker = document.createElement('input');
+    filePicker.type = 'file'; filePicker.multiple = true; filePicker.style.display = 'none';
+    const imgPicker = document.createElement('input');
+    imgPicker.type = 'file'; imgPicker.accept = 'image/*'; imgPicker.multiple = true; imgPicker.style.display = 'none';
+    document.body.appendChild(filePicker); document.body.appendChild(imgPicker);
+
+    const chipRow = document.createElement('div');
+    chipRow.className = 'attach-chips';
+    inputBox.insertBefore(chipRow, inputBox.firstChild);
+
+    const pending = [];
+
+    function safeBase(name) {
+      const base = String(name || 'file').replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '');
+      return (base || 'file').slice(-80);
+    }
+    function stampPath(name) {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      const tag = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}-${Date.now().toString(36)}`;
+      return 'attached/' + tag + '-' + safeBase(name);
+    }
+    function isImage(p) { return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(p); }
+    function fmtSize(n) {
+      if (n < 1024) return n + ' Б';
+      if (n < 1024 * 1024) return Math.round(n / 1024) + ' КБ';
+      return (n / (1024 * 1024)).toFixed(1) + ' МБ';
+    }
+    function fileToBase64(file) {
+      return new Promise((res, rej) => {
+        const rd = new FileReader();
+        rd.onload = () => res(String(rd.result || ''));
+        rd.onerror = () => rej(rd.error || new Error('read failed'));
+        rd.readAsDataURL(file);
+      });
+    }
+    async function uploadOne(file) {
+      const path = stampPath(file.name);
+      const dataUrl = await fileToBase64(file);
+      const b64 = dataUrl.indexOf(',') >= 0 ? dataUrl.split(',')[1] : dataUrl;
+      const r = await fetch('/api/workspace/upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, data: b64 })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      const isImage = /^image\//i.test(file.type || '');
+      // dataUrl держим только для картинок — иначе base64 видео/pdf забивает память.
+      // Для текстовых/бинарных вложений покажем в чате иконку и имя (см. renderUserBubble).
+      return {
+        path: (j.path || path),
+        size: file.size,
+        name: file.name,
+        type: file.type || '',
+        dataUrl: isImage ? dataUrl : null
+      };
+    }
+    function render() {
+      const list = pending.map((p, i) => {
+        const icon = isImage(p.path) ? '🖼' : '📎';
+        const fname = p.path.split('/').pop();
+        return `<span class="attach-chip" data-i="${i}" title="${p.path}">${icon} ${fname} <em>${fmtSize(p.size)}</em><button type="button" class="attach-chip-x" data-i="${i}" title="Убрать">×</button></span>`;
+      }).join('');
+      chipRow.innerHTML = list;
+      chipRow.querySelectorAll('.attach-chip-x').forEach(b => {
+        b.addEventListener('click', () => { pending.splice(Number(b.dataset.i), 1); render(); });
+      });
+    }
+    async function handleFiles(files) {
+      const arr = Array.from(files || []);
+      for (const f of arr) {
+        try {
+          const r = await uploadOne(f);
+          pending.push(r);
+          render();
+        } catch (e) {
+          const showErr = window.pushConsoleLine || ((t, a) => console[t || 'log'](...a));
+          showErr('error', ['Upload failed', f.name, e.message || String(e)]);
+        }
+      }
+      if (pending.length) loadWorkspaceFiles();
+    }
+
+    const attachBtn = document.querySelector('.attach-btn');
+    const imgBtn = document.querySelector('.img-btn');
+    if (attachBtn) attachBtn.addEventListener('click', (e) => { e.preventDefault(); filePicker.click(); });
+    if (imgBtn) imgBtn.addEventListener('click', (e) => { e.preventDefault(); imgPicker.click(); });
+    filePicker.addEventListener('change', () => { handleFiles(filePicker.files); filePicker.value = ''; });
+    imgPicker.addEventListener('change', () => { handleFiles(imgPicker.files); imgPicker.value = ''; });
+
+    // Кнопка «Выбрать элемент» в превью. По клику шлёт в iframe сообщение —
+    // там мост (PREVIEW_BRIDGE в server.js) включает режим выбора: курсор
+    // crosshair, подсветка под наведением, клик элемента → outerHTML улетает
+    // обратно, мы заворачиваем его в HTML-сниппет и кладём в workspace.
+    const selectBtn = document.getElementById('selectBtn');
+    function postToPreview(msg) {
+      const iframe = document.getElementById('previewFrame');
+      if (iframe && iframe.contentWindow) iframe.contentWindow.postMessage(msg, '*');
+    }
+    function setSelectMode(on) {
+      selectBtn?.classList.toggle('is-on', !!on);
+      postToPreview({ source: 'agent', type: 'select-mode', on: !!on });
+    }
+    if (selectBtn) {
+      selectBtn.addEventListener('click', () => setSelectMode(!selectBtn.classList.contains('is-on')));
+    }
+    async function handleElementSelected(detail) {
+      try {
+        const tag = (detail && detail.tag || 'div').toLowerCase();
+        const idAttr = detail && detail.id ? ` id="${String(detail.id).replace(/"/g, '&quot;')}"` : '';
+        const clsAttr = detail && detail.classes ? ` class="${String(detail.classes).replace(/"/g, '&quot;')}"` : '';
+        const outer = (detail && detail.html) || '';
+        const safeOuter = outer.length > 12000 ? outer.slice(0, 12000) + '\n<!-- …обрезано… -->' : outer;
+        const snippet =
+          `<!doctype html><meta charset="utf-8"><title>selection</title>` +
+          `<style>body{font:13px/1.45 -apple-system,BlinkMacSystemFont,sans-serif;background:#0e1117;color:#c9d1d9;padding:18px}` +
+          ` .sel-head{opacity:.6;font-size:11px;margin-bottom:10px}` +
+          ` .sel-box{border:1px solid #2a313c;border-radius:8px;padding:10px;background:#161b22}</style>` +
+          `<div class="sel-head">Выбранный элемент: &lt;${tag}${idAttr}${clsAttr}&gt;</div>` +
+          `<div class="sel-box">${safeOuter}</div>`;
+        const path = 'attached/' + Date.now().toString(36) + '-selection.html';
+        const r = await fetch('/api/workspace/upload', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path, data: btoa(unescape(encodeURIComponent(snippet))) })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        const size = new Blob([snippet]).size;
+        const pending = (window.__getPendingAttachments && window.__getPendingAttachments()) || [];
+        pending.push({ path: (j.path || path), size, name: 'selection.html', type: 'text/html', dataUrl: null });
+        if (window.__renderAttachChips) window.__renderAttachChips();
+        if (window.pushConsoleLine) window.pushConsoleLine('log', ['Selection добавлен', j.path || path]);
+        setSelectMode(false);
+      } catch (e) {
+        if (window.pushConsoleLine) window.pushConsoleLine('error', ['Selection failed', e.message || String(e)]);
+        setSelectMode(false);
+      }
+    }
+    window.addEventListener('message', (e) => {
+      const m = e && e.data;
+      if (!m || m.source !== 'preview-iframe') return;
+      if (m.type === 'element-selected') {
+        const args = Array.isArray(m.args) ? m.args : [];
+        handleElementSelected({ tag: args[0], html: args[1], id: args[2], classes: args[3] });
+      }
+    });
+
+    // Ctrl+V: только картинки. Текст вставляется браузером обычным путём.
+    document.addEventListener('paste', async (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      let imageFile = null;
+      for (const it of items) {
+        if (it.kind === 'file' && /^image\//i.test(it.type)) { imageFile = it.getAsFile(); break; }
+      }
+      if (!imageFile) return;
+      e.preventDefault();
+      const extFromMime = (m) => {
+        const x = /^image\/(png|jpe?g|gif|webp|bmp)$/i.exec(m || '');
+        return x ? (x[1].toLowerCase() === 'jpeg' ? 'jpg' : x[1].toLowerCase()) : 'png';
+      };
+      const fakeName = 'paste-' + Date.now().toString(36) + '.' + extFromMime(imageFile.type);
+      try { await handleFiles([new File([imageFile], fakeName, { type: imageFile.type })]); }
+      catch (err) { console.warn('[paste] upload failed:', err.message || err); }
+    });
+
+    if (attachBtn) attachBtn.title = 'Прикрепить файл (картинку можно вставить через Ctrl+V)';
+    if (imgBtn) imgBtn.title = 'Прикрепить изображение (или Ctrl+V)';
+
+    // Хелперы для sendMessage: при отправке чипы очищаются.
+    window.__getPendingAttachments = () => pending.slice();
+    window.__renderAttachChips = (fresh) => {
+      if (Array.isArray(fresh)) {
+        pending.length = 0;
+        for (const p of fresh) pending.push(p);
+        render();
+      } else { render(); }
+    };
+    window.__clearPendingAttachments = () => { pending.length = 0; render(); };
+  })();
+
+  // Keep the file tree available to the small chrome helpers below while
+  // retaining its private cache and rendering state inside this module.
+  window.renderFileTree = renderFileTree;
   loadConfig();
   loadMessages();
   loadWorkspaceFiles();
+  setRightTab('preview');
+})();
+// Wire new Replit-style chrome buttons (Publish / Invite / search) — no-op funcs they exist only for visual parity
+document.querySelector('.invite-btn')?.addEventListener('click', () => {
+  console.info('[invite] share menu would open here');
+});
+document.querySelector('.publish-btn')?.addEventListener('click', () => {
+  console.info('[publish] deploy workflow would open here');
+  if (typeof switchToPreview === 'function') switchToPreview();
+});
+
+// Library search filter + Ctrl+Shift+L to toggle right panel
+(function wireLibrarySearchAndShortcut() {
+  const searchEl = document.getElementById('librarySearch');
+  if (searchEl) {
+    searchEl.addEventListener('input', () => {
+      // Re-render the current file list with the new filter
+      if (typeof window.__lastFiles !== 'undefined' && Array.isArray(window.__lastFiles)) {
+        window.renderFileTree(window.__lastFiles || []);
+      } else {
+        // If nothing cached, at least re-emit an empty render so the empty state shows
+        window.renderFileTree([]);
+      }
+    });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l' || e.key === 'К' || e.key === 'к')) {
+      e.preventDefault();
+      const rp = document.getElementById('rightPanel');
+      if (rp) rp.classList.toggle('collapsed');
+    }
+  });
 })();

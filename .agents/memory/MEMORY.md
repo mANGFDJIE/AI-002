@@ -1,0 +1,3 @@
+- [`.replit` edits](dot-replit-edits.md) — must use `verifyAndReplaceDotReplit`, not direct `WriteFile`/`Edit`.
+- [Imported project setup](imported-project-setup.md) — after zip import, check `node_modules` and install dependencies before assuming the workflow will run.
+- [Supabase secrets storage](supabase-secrets-storage.md) — Supabase credentials belong in Replit Secrets only, never in `.replit` or committed files.

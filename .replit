@@ -30,3 +30,12 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+OPENAI_BASE_URL = "https://api.vsegpt.ru/v1"
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["node", "server.js"]
