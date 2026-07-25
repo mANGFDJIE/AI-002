@@ -1433,8 +1433,36 @@ textarea::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2
   padding: 24px;
   text-align: center;
 }
-.empty-chat p { font-size: 13px; }
-.empty-chat span { font-size: 11.5px; }
+.empty-chat p { font-size: 13px; color: var(--text2); font-weight: 500; margin: 0; }
+.empty-chat span { font-size: 11.5px; color: var(--text3); line-height: 1.5; max-width: 320px; }
+
+/* Quick-start suggestion chips */
+.empty-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 4px;
+  max-width: 400px;
+}
+.suggestion-chip {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.suggestion-chip:hover {
+  background: rgba(167,139,250,0.14);
+  border-color: rgba(167,139,250,0.45);
+  color: #cbb6ff;
+}
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1903,79 +1931,114 @@ div:has(> :contains("Made with Replit")) { display: none !important; }
 .msg-user-attach-cell span em { font-style: normal; opacity: .55; margin-left: 6px; }
 
 
-/* ── Activity timeline (Claude.ai-style) ─────────────────────────────────── */
-.acti-live { display: block; margin: 6px 0 -2px 24px; padding: 0; min-height: 0; flex: none; }
-.acti-live-row { display: flex; align-items: center; gap: 10px; padding: 2px 0; }
-.acti-live-icons { display: inline-flex; gap: 4px; }
-.acti-live-count { color: #8b949e; font-size: 11px; letter-spacing: 0.2px; }
-.acti-dots span { display:inline-block; width:5px; height:5px; border-radius:50%; background:#79c0ff; margin-right:2px; animation: acti-blink 1.4s infinite both; }
-.acti-dots span:nth-child(2) { animation-delay: 0.2s; }
-.acti-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes acti-blink { 0%,80%,100% { opacity: 0.2 } 40% { opacity: 1 } }
-.acti-icon { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:4px; background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.06); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:10px; line-height:1; color: #c9d1d9; }
-.acti-icon.acti-route { color: #79c0ff; border-color: rgba(121,192,255,0.2); }
-.acti-icon.acti-delegate { color: #a5d6ff; border-color: rgba(165,214,255,0.2); }
-.acti-icon.acti-write { color: #f0883e; border-color: rgba(240,136,62,0.2); }
-.acti-icon.acti-vision { color: #d2a8ff; border-color: rgba(210,168,255,0.2); }
-.acti-icon.acti-synth { color: #56d364; border-color: rgba(86,211,100,0.2); }
-.acti-icon.acti-parallel { color: #ff7b72; border-color: rgba(255,123,114,0.2); }
-.acti-icon.acti-retry { color: #ffa657; border-color: rgba(255,166,87,0.2); }
-.acti-icon.acti-answer { color: #a5d6ff; border-color: rgba(165,214,255,0.2); }
-.acti-icon.acti-error { color: #ff7b72; border-color: rgba(255,123,114,0.2); }
-.acti-timeline > summary::-webkit-details-marker { display: none; }
-.acti-summary-icons { display: inline-flex; gap: 4px; }
-.acti-summary-count { color: #c9d1d9; font-size: 12px; }
-.acti-show-toggle { margin-left: auto; color: #8b949e; font-size: 11px; }
-.acti-timeline[open] .acti-show-toggle::after { content: ' ↑'; }
-.acti-timeline:not([open]) .acti-show-toggle::after { content: ' ↓'; }
-.acti-steps { margin-top: 8px; padding-left: 0; list-style: none; }
-.acti-step { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; color: #c9d1d9; }
-.acti-step .acti-icon { width:16px; height:16px; font-size:9px; }
-.acti-step-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-.acti-tick { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background: rgba(63, 185, 80, 0.15); color: #3fb950; font-size: 12px; }
-.acti-thinking { color: #79c0ff; font-size: 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin-right: 6px; }
+/* ── Replit-style activity status bar ────────────────────────────────────── */
+.acti-live { display: block; margin: 8px 0 2px 0; padding: 0; min-height: 0; flex: none; }
 
-/* Pulse-иконка слева как у Claude: ↻ крутится во время работы, ✓ после. */
-.acti-pulse {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 18px; height: 18px; margin-right: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1;
-  color: #79c0ff; border-radius: 50%;
-  background: rgba(121,192,255,0.08);
-  border: 1px solid rgba(121,192,255,0.18);
+/* Wrapper — clips border-radius, holds expanded+compact stacked */
+.acti-wrap {
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  border-radius: 8px;
+  overflow: hidden;
 }
-.acti-pulse.live { animation: acti-spin 1.6s linear infinite; }
-.acti-pulse.done { color: #56d364; background: rgba(86,211,100,0.10); border-color: rgba(86,211,100,0.20); animation: none; }
+
+/* Expanded panel (step list) */
+.acti-expanded { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-bottom: none; border-radius: 8px 8px 0 0; }
+.acti-expanded[hidden] { display: none; }
+
+.acti-show-less {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%; padding: 7px 10px;
+  background: none; border: none; border-bottom: 1px solid rgba(255,255,255,0.06);
+  color: #8b949e; font-size: 12px; text-align: left; cursor: pointer;
+  font-family: inherit; transition: color 0.15s;
+}
+.acti-show-less:hover { color: #c9d1d9; }
+
+/* Step list */
+.acti-steps-list {
+  list-style: none; margin: 0; padding: 2px 0;
+  max-height: 260px; overflow-y: auto;
+}
+.acti-step-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 10px;
+  color: #c9d1d9; font-size: 12.5px;
+}
+.acti-step-row + .acti-step-row { border-top: 1px solid rgba(255,255,255,0.04); }
+
+/* Step icon chip */
+.acti-step-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; flex-shrink: 0;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
+  color: #8b949e;
+}
+.acti-step-label { flex: 1; line-height: 1.4; color: #c9d1d9; }
+
+/* Compact bar — always visible */
+.acti-compact {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+}
+.acti-wrap.open .acti-compact { border-radius: 0 0 8px 8px; border-top: none; }
+
+/* Spinning/done pulse dot */
+.acti-pulse-dot {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; flex-shrink: 0; border-radius: 50%;
+  color: #79c0ff; background: rgba(121,192,255,0.09); border: 1px solid rgba(121,192,255,0.22);
+}
+.acti-pulse-dot.live svg { animation: acti-spin 1.6s linear infinite; }
+.acti-pulse-dot.done { color: #56d364; background: rgba(86,211,100,0.1); border-color: rgba(86,211,100,0.25); }
 @keyframes acti-spin { to { transform: rotate(360deg); } }
 
-.acti-more { color: #6e7681; font-size: 11px; padding: 0 2px; letter-spacing: 1px; }
-
-.acti-thinking { color: #c9d1d9; font-size: 12px; margin-left: 4px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; letter-spacing: 0.2px; }
-.acti-thinking .acti-dots { display: inline-block; width: 16px; }
-.acti-thinking .acti-dots span { animation: acti-dot 1.2s infinite; opacity: 0.2; font-weight: bold; }
-.acti-thinking .acti-dots span:nth-child(2) { animation-delay: 0.2s; }
-.acti-thinking .acti-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes acti-dot {
-  0%, 60%, 100% { opacity: 0.2; }
-  30% { opacity: 1; }
+/* Chip row in compact bar */
+.acti-chip-row { display: inline-flex; gap: 3px; flex-shrink: 0; }
+.acti-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
+  color: #8b949e;
 }
 
-.acti-details { margin: 4px 0 4px 24px; font-size: 11.5px; }
-.acti-details > summary {
-  cursor: pointer; color: #8b949e; list-style: none; user-select: none;
-  padding: 2px 6px; display: inline-flex; align-items: center; gap: 4px;
-  border-radius: 4px; transition: background 0.15s, color 0.15s;
-}
-.acti-details > summary:hover { background: rgba(255,255,255,0.05); color: #c9d1d9; }
-.acti-details > summary::-webkit-details-marker { display: none; }
-.acti-summary-arrow { font-size: 10px; display: inline-block; transition: transform 0.2s ease; }
-.acti-details[open] > summary .acti-summary-arrow { transform: rotate(-180deg); }
+/* Color variants — chips and step icons share same kind-* classes */
+.acti-chip.kind-connect,  .acti-step-icon.kind-connect  { color:#79c0ff; border-color:rgba(121,192,255,.25); background:rgba(121,192,255,.09); }
+.acti-chip.kind-read,     .acti-step-icon.kind-read      { color:#a5d6ff; border-color:rgba(165,214,255,.25); background:rgba(165,214,255,.07); }
+.acti-chip.kind-shell,    .acti-step-icon.kind-shell     { color:#e3b341; border-color:rgba(227,179,65,.25);  background:rgba(227,179,65,.07);  }
+.acti-chip.kind-skill,    .acti-step-icon.kind-skill     { color:#d2a8ff; border-color:rgba(210,168,255,.25); background:rgba(210,168,255,.07); }
+.acti-chip.kind-restart,  .acti-step-icon.kind-restart   { color:#56d364; border-color:rgba(86,211,100,.25);  background:rgba(86,211,100,.07);  }
+.acti-chip.kind-route,    .acti-step-icon.kind-route     { color:#79c0ff; border-color:rgba(121,192,255,.25); background:rgba(121,192,255,.09); }
+.acti-chip.kind-delegate, .acti-step-icon.kind-delegate  { color:#a5d6ff; border-color:rgba(165,214,255,.25); background:rgba(165,214,255,.07); }
+.acti-chip.kind-write,    .acti-step-icon.kind-write     { color:#f0883e; border-color:rgba(240,136,62,.25);  background:rgba(240,136,62,.07);  }
+.acti-chip.kind-synth,    .acti-step-icon.kind-synth     { color:#56d364; border-color:rgba(86,211,100,.25);  background:rgba(86,211,100,.07);  }
+.acti-chip.kind-parallel, .acti-step-icon.kind-parallel  { color:#ff7b72; border-color:rgba(255,123,114,.25); background:rgba(255,123,114,.07); }
+.acti-chip.kind-vision,   .acti-step-icon.kind-vision    { color:#d2a8ff; border-color:rgba(210,168,255,.25); background:rgba(210,168,255,.07); }
+.acti-chip.kind-error,    .acti-step-icon.kind-error     { color:#ff7b72; border-color:rgba(255,123,114,.25); background:rgba(255,123,114,.07); }
+.acti-chip.kind-retry,    .acti-step-icon.kind-retry     { color:#ffa657; border-color:rgba(255,166,87,.25);  background:rgba(255,166,87,.07);  }
+.acti-chip.kind-answer,   .acti-step-icon.kind-answer    { color:#a5d6ff; border-color:rgba(165,214,255,.25); background:rgba(165,214,255,.07); }
+.acti-chip.kind-thinking  { color:#a371f7; border-color:rgba(163,113,247,.3); background:rgba(163,113,247,.12); }
 
-.acti-steps {
-  list-style: none; padding: 6px 0 2px 26px; margin: 0;
-  border-left: 1px solid rgba(255,255,255,0.06);
+/* "Thinking..." animated label */
+.acti-thinking-label {
+  color: #c9d1d9; font-size: 12px; display: inline-flex; align-items: baseline; gap: 1px;
 }
-.acti-step { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 11.5px; color: #c9d1d9; }
-.acti-step .acti-icon { width: 16px; height: 16px; font-size: 9px; }
-.acti-step-label { color: #c9d1d9; }
+.acti-dots-anim span { opacity: 0.25; font-weight: 700; animation: acti-dot 1.2s infinite; }
+.acti-dots-anim span:nth-child(2) { animation-delay: 0.2s; }
+.acti-dots-anim span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes acti-dot { 0%,60%,100% { opacity: 0.25; } 30% { opacity: 1; } }
+
+/* Expand/collapse button */
+.acti-expand-btn {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px; border-radius: 4px;
+  background: none; border: none; cursor: pointer; flex-shrink: 0;
+  color: #6e7681; font-size: 11.5px; font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+.acti-expand-btn:hover { background: rgba(255,255,255,0.06); color: #c9d1d9; }
 

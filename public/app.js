@@ -35,7 +35,7 @@
     el.style.display = v ? 'inline-flex' : 'none';
     el.classList.toggle('is-running', !!v);
   }
-  const LLM_SYSTEM_PROMPT = 'You are an autonomous AI coding agent. You can write and edit code, analyze, design, explain. When you return ANY code for a file (HTML/CSS/JS/JSON/...), you MUST include a path marker -- one of two ways: (1) after the opening triple-backtick in the info-string: triple-backtick html // file: index.html OR triple-backtick css // file: styles.css  (2) on the first line inside the code block:  // file: index.html  OR  <!-- file: index.html -->.  Without the marker the file will NOT save to workspace and the user will see the code only in chat -- so the marker is REQUIRED for any code that should land on disk. Default auto-naming: HTML -> index.html, CSS -> styles.css, JS -> script.js, JSON -> data.json. If the file already exists in workspace, EDIT it -- do not create a new file with the same content. Reply in Russian if the request is in Russian.\n\n=== TONE (STRICT) ===\nWrite like a Replit agent: engineer in Slack, not essayist. Max 2-4 prose sentences. No leads (Let us, Well, Currently I, I will review, We should, Here is my plan, Let us begin). No explaining the obvious. No follow-up questions.\n\nProse format:\n- What changed: filename -- one-line gist (comma-separated if multiple).\n- If there was a choice: one sentence with reasoning.\n- If error/cannot: exactly one sentence on what failed.\nExample: Created index.html (cyberpunk style: bg #0ff, sparks). If you want to change palette/saturation, say.\n\n=== TARGET-FILE RULE ===\nWhen user-content carries a CEL-OBSHCh block with an explicit \'Fayl-cel: ...path.ext\', edit STRICTLY that file -- even if other files in the project contain similar markup. Do not ask \'which file should I edit?\'. Just delete/modify the element in the named file. If the element is not found in that file, say so in one sentence.\n\n=== SELECTED-ELEMENT HINT ===\nIf user mentions Tz <tag> in their text, treat it as a soft pointer to the currently attached selected-element chip. The chip already carries the pagePath, so do NOT infer file from the tag alone. Use the path from the chip / CEL-OBSHCh block.\n';
+  const LLM_SYSTEM_PROMPT = 'You are an autonomous AI coding agent embedded in a web-based IDE. You build modern web apps, landing pages, dashboards, and full-stack applications.\n\n=== CODE OUTPUT (REQUIRED) ===\nWhen you return ANY code for a file, you MUST include a path marker — one of two ways:\n(1) in the info-string: ```html // file: index.html\n(2) first line inside the block: // file: index.html  OR  <!-- file: index.html -->\nWithout the marker the file will NOT save to workspace. Marker is REQUIRED for any code that lands on disk.\nDefault auto-naming: HTML → index.html, CSS → styles.css, JS → script.js, JSON → data.json.\nIf the file already exists in workspace, EDIT it — do not create a duplicate.\n\n=== MODERN STACK (defaults) ===\n• Vanilla: clean semantic HTML5, modern CSS (custom properties, grid, flexbox, container queries), no jQuery\n• React/Next.js: functional components, hooks, Tailwind CSS, shadcn/ui, TypeScript if applicable\n• Design: dark theme by default; system fonts or Google Fonts; smooth CSS transitions; glassmorphism/neumorphism if "modern" requested\n• Icons: Lucide (CDN) or inline SVG — no emoji in production UI elements\n• Palette: sophisticated dark (#0a0a0f bg, #7c3aed accent) or premium light — avoid basic neon unless cyberpunk requested\n• Landing pages: hero with gradient text, bento grid, feature cards, social proof section, CTA — Vercel/Linear/Stripe aesthetic\n• Components: fully functional, not placeholder — real interactivity with JS where needed\n\n=== TONE (STRICT) ===\nWrite like a Replit agent engineer. Max 2-4 prose sentences. No leads (Let us, Well, Currently I, I will review, We should, Here is my plan, Let us begin). No explaining the obvious. No follow-up questions.\nFormat: what changed (filename — one-line gist, comma-separated if multiple). If error: one sentence on what failed.\n\n=== TARGET-FILE RULE ===\nWhen user-content carries a [🎯 ЦЕЛЬ ОПЕРАЦИИ] block with explicit Fayl-cel: ...path.ext, edit STRICTLY that file. Do not ask which file. Just modify it.\n\n=== SELECTED-ELEMENT HINT ===\nIf user mentions ⌖ <tag> in their text, treat it as a soft pointer to the attached selected-element chip. Use pagePath from the chip, not inferred from tag.\n\nReply in Russian if the request is in Russian.\n';
 
   // Склеивает текст + прикреплённые картинки в OpenAI multimodal content
   // (image_url parts), чтобы модель реально видела скриншоты в диалоге, а не
@@ -189,11 +189,13 @@
       //    Это самые сильные модели в каталоге (reasoning + крупные).
       if (isVseGpt) {
         const featured = [
-          { id: 'anthropic/claude-sonnet-4.6-thinking-high', label: 'Claude S 4.6 H',     desc: 'Anthropic Claude Sonnet 4.6 (high) — топ для кода/агентов, держит длинный контекст и современный стек' },
-          { id: 'anthropic/claude-sonnet-4.5',                label: 'Claude S 4.5',       desc: 'Anthropic Claude Sonnet 4.5 — топ для современного кода, широкий стек' },
-          { id: 'anthropic/claude-sonnet-4',                  label: 'Claude S 4',         desc: 'Anthropic Claude Sonnet 4 — топ для современного кода, длинный контекст' },
-          { id: 'deepseek/deepseek-coder',                   label: 'DS Coder',           desc: 'DeepSeek Coder — крепкий кодер на длинном контексте' },
-          { id: 'deepseek/deepseek-r1',                      label: 'DS R1',              desc: 'DeepSeek-R1 — рассуждения и многошаговое планирование' }
+          { id: 'anthropic/claude-sonnet-4.6-thinking-high', label: 'Claude 4.6 Thinking', desc: 'Claude Sonnet 4.6 (extended thinking) — глубокое рассуждение + код, Next.js, React, vision' },
+          { id: 'anthropic/claude-sonnet-4.6',               label: 'Claude 4.6',          desc: 'Claude Sonnet 4.6 — быстрый и сильный: React/Next.js, Tailwind, современный UI, vision' },
+          { id: 'anthropic/claude-sonnet-4.5',               label: 'Claude 4.5',          desc: 'Claude Sonnet 4.5 — надёжный для кода, широкий стек, длинный контекст' },
+          { id: 'anthropic/claude-sonnet-4',                 label: 'Claude 4',            desc: 'Claude Sonnet 4 — стабильный кодер, длинный контекст, vision' },
+          { id: 'deepseek/deepseek-r1',                      label: 'DeepSeek R1',         desc: 'DeepSeek-R1 — reasoning: math, алгоритмы, пошаговое планирование' },
+          { id: 'deepseek/deepseek-coder',                   label: 'DeepSeek Coder',      desc: 'DeepSeek Coder — экономичный кодер, длинный контекст, быстрый' },
+          { id: 'openai/gpt-4o-mini',                        label: 'GPT-4o mini',         desc: 'GPT-4o mini — быстрый, дешёвый, vision: подходит для простых задач' },
         ];
         featured.forEach((f, i) => {
           modelPresets[`featured-${i}`] = {
@@ -573,12 +575,21 @@
         const sig = files.map(f => f.name + ':' + f.mtime + ':' + f.size).join('|');
         if (sig !== _lastFilesSig) {
           _lastFilesSig = sig;
+          // Invalidate file-viewer cache so source panel shows fresh content.
+          _fileCache.clear();
           renderChangesPanel(files);
           renderFileTree(files);
           window._lastFiles = files;
-          // Soft auto-reload: this is identical to Replit's "Run on save" feel.
-          setPreviewStatus('syncing', 'Reload');
-          reloadPreview();
+          // Only reload preview iframe when actual code/markup files changed —
+          // not for attached/ uploads or other non-renderable assets.
+          const hasCodeChange = files.some(f =>
+            /\.(html?|css|js|mjs|jsx|ts|tsx|svg|json)$/i.test(f.name) &&
+            !/^attached\//i.test(f.name)
+          );
+          if (hasCodeChange) {
+            setPreviewStatus('syncing', 'Reload');
+            reloadPreview();
+          }
         }
       });
       _sse.addEventListener('error', () => setPreviewStatus('error', 'Offline'));
@@ -726,15 +737,33 @@
   }
 
   function showEmptyState() {
+    const suggestions = [
+      { icon: '🚀', text: 'Современный SaaS-лендинг в стиле Linear' },
+      { icon: '⚡', text: 'React-дашборд с графиками и Tailwind CSS' },
+      { icon: '🎨', text: 'Портфолио-сайт с анимациями' },
+      { icon: '🔐', text: 'Форма авторизации с валидацией' },
+      { icon: '📦', text: 'Next.js шаблон с App Router' },
+      { icon: '🌐', text: 'Адаптивный лендинг с hero и bento-сеткой' },
+    ];
     messagesEl.innerHTML = `
       <div class="empty-chat">
         <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
           <rect x="2" y="2" width="32" height="32" rx="7" stroke="#3b4258" stroke-width="2"/>
-          <path d="M10 14h16M10 20h10" stroke="#3b4258" stroke-width="2" stroke-linecap="round"/>
+          <path d="M8 12h20M8 18h14M8 24h10" stroke="#3b4258" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
-        <p>Начните диалог</p>
-        <span>Автоподбор модели по задаче. Превью обновляется при изменении кода.</span>
+        <p>Создайте что-то крутое</p>
+        <span>Агент автоматически подбирает лучшую модель — лендинги, React, Next.js, дашборды.</span>
+        <div class="empty-suggestions">
+          ${suggestions.map(s => `<button class="suggestion-chip" data-text="${escHtml(s.text)}">${s.icon} ${escHtml(s.text)}</button>`).join('')}
+        </div>
       </div>`;
+    messagesEl.querySelectorAll('.suggestion-chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        inputEl.value = btn.dataset.text || '';
+        autoResize();
+        inputEl.focus();
+      });
+    });
   }
 
   function renderModelDropdown() {
@@ -1127,15 +1156,35 @@
   }
 
 
-  // ╔══ Claude.ai-style live activity timeline ════════════════════════════════╗
-  // Пока агент работает, в верхней части его пузыря видно не только текущий
-  // status, но и растущий список действий (Маршрутизация → Делегирование →
-  // Vision → Синтез → …). После завершения список «схлопывается» в
-  // аккордеон «N действий» — копия визуала Claude's «17 actions». Нажал —
-  // развернул, увидел конкретные шаги.
+  // ╔══ Replit-style live activity status bar ════════════════════════════════╗
+  // Пока агент работает — компактная строка с иконками + "Thinking..".
+  // Кнопка "N шагов" разворачивает полный список. После завершения
+  // спиннер сменяется галочкой, текст "Thinking.." исчезает.
+
+  // SVG-иконки для каждого типа шага (12×12, currentColor)
+  const STEP_SVG = {
+    connect:  '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.1"/><ellipse cx="6" cy="6" rx="2" ry="4.5" stroke="currentColor" stroke-width="1"/><path d="M1.5 6h9" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>',
+    read:     '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1.5 9.5V3L6 1.5 10.5 3v6.5" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M6 1.5v8" stroke="currentColor" stroke-width="1"/><path d="M1.5 9.5c1.5-.5 3-.7 4.5-.7s3 .2 4.5.7" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>',
+    shell:    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="2" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.1"/><path d="M3.5 5l1.5 1-1.5 1M6.5 7h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    skill:    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M9.5 2.5L6 6M2.5 9.5L6 6M6 6L9.5 9.5M6 6L2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+    restart:  '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10.5 6a4.5 4.5 0 1 1-1.7-3.5L10.5 1v3.5H7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    route:    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6h8M7.5 3.5L10 6l-2.5 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    delegate: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 9L9 3M9 3H5.5M9 3v3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    write:    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M8.5 2L10 3.5 4.5 9H3v-1.5L8.5 2z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M2 11h8" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></svg>',
+    synth:    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1l1.2 3H10l-2.4 1.8.9 3L6 7.2 4.5 8.8l.9-3L3 4h2.8L6 1z" stroke="currentColor" stroke-width="1" stroke-linejoin="round" fill="none"/></svg>',
+    parallel: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 2.5v7M6 2.5v7M9 2.5v7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+    vision:   '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><ellipse cx="6" cy="6" rx="4.5" ry="3" stroke="currentColor" stroke-width="1.1"/><circle cx="6" cy="6" r="1.5" fill="currentColor"/></svg>',
+    error:    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.1"/><path d="M6 3.5v3M6 8.2h.01" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+    retry:    '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M10.5 6a4.5 4.5 0 1 1-1.7-3.5L10.5 1v3.5H7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    answer:   '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    work:     '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="4" width="10" height="7" rx="1.2" stroke="currentColor" stroke-width="1.1"/><path d="M4 4V3a2 2 0 0 1 4 0v1" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>',
+    idle:     '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.1"/><path d="M6 3.5v2.7l1.5 1.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>',
+    thinking: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="2.5" cy="2.5" r="1" fill="currentColor"/><circle cx="6" cy="2.5" r="1" fill="currentColor"/><circle cx="9.5" cy="2.5" r="1" fill="currentColor"/><circle cx="2.5" cy="6" r="1" fill="currentColor"/><circle cx="6" cy="6" r="1" fill="currentColor"/><circle cx="9.5" cy="6" r="1" fill="currentColor"/><circle cx="2.5" cy="9.5" r="1" fill="currentColor"/><circle cx="6" cy="9.5" r="1" fill="currentColor"/><circle cx="9.5" cy="9.5" r="1" fill="currentColor"/></svg>',
+  };
+
   const activityTracker = {
-    container: null,         // .acti-live внутри текущей thinking-пузырька
-    steps: [],               // [{kind,icon,label}, ...]
+    container: null,
+    steps: [],
     reset() { this.container = null; this.steps = []; },
     setContainer(el) { this.container = el; },
     push(status) {
@@ -1150,51 +1199,27 @@
   };
 
   function classifyStep(status) {
-    if (!status) return { kind:'idle', icon:'·', label:'Работаю' };
-    const m = [
-      [/Маршрутизация \\([^)]+\\)|Маршрутизатор/i, { kind:'route',    icon:'>_', label:'Маршрутизация задачи' }],
-      [/Делегирование\\s*→/i,                              { kind:'delegate', icon:'↗',  label:'Делегирование к специалисту' }],
-      [/Модель .*недоступна|Повтор/i,                        { kind:'retry',    icon:'⟳',   label:'Повторная попытка на другой модели' }],
-      [/Записываю файлы из ([^\\s:]+)/i,                     function(s){ return { kind:'write', icon:'✎', label:'Записываю '+s.match(/Записываю файлы из ([^\\s:]+)/)[1] }; }],
-      [/Синтез финального ответа/i,                          { kind:'synth',    icon:'⊕',   label:'Синтез финального ответа' }],
-      [/Параллельный опрос/i,                                { kind:'parallel', icon:'∥',   label:'Параллельный опрос моделей' }],
-      [/Замена делегата на vision/i,                         { kind:'vision',   icon:'◉',   label:'Vision-анализ вложений' }],
-      [/Прямой ответ/i,                                      { kind:'answer',   icon:'✦',   label:'Прямой ответ маршрутизатора' }],
-      [/Делегат.*ошибка/i,                      { kind:'error',    icon:'!',   label:'Ошибка модели-эксперта' }]
+    if (!status) return { kind:'idle', svgIcon: STEP_SVG.idle, label:'Работаю' };
+    const rules = [
+      [/vsegpt|api\.|connect|http/i,                       { kind:'connect',  svgIcon: STEP_SVG.connect  }],
+      [/открыл|открываю|читаю|opened|read|\.md|\.js|\.html|\.css|\.json/i, { kind:'read', svgIcon: STEP_SVG.read }],
+      [/url|fetch|запрос/i,                                { kind:'shell',    svgIcon: STEP_SVG.shell    }],
+      [/skill|навык/i,                                     { kind:'skill',    svgIcon: STEP_SVG.skill    }],
+      [/restart|restarting|перезапуск/i,                   { kind:'restart',  svgIcon: STEP_SVG.restart  }],
+      [/Маршрутизация|маршрутизатор|router/i,              { kind:'route',    svgIcon: STEP_SVG.route    }],
+      [/Делегирование/i,                                   { kind:'delegate', svgIcon: STEP_SVG.delegate }],
+      [/Записываю файлы/i,                                 { kind:'write',    svgIcon: STEP_SVG.write    }],
+      [/Синтез/i,                                          { kind:'synth',    svgIcon: STEP_SVG.synth    }],
+      [/Параллельный/i,                                    { kind:'parallel', svgIcon: STEP_SVG.parallel }],
+      [/[Vv]ision/i,                                       { kind:'vision',   svgIcon: STEP_SVG.vision   }],
+      [/Переход →/i,                                       { kind:'retry',    svgIcon: STEP_SVG.retry    }],
+      [/ошибка|error|упал/i,                               { kind:'error',    svgIcon: STEP_SVG.error    }],
+      [/Прямой ответ/i,                                    { kind:'answer',   svgIcon: STEP_SVG.answer   }],
     ];
-    for (const [re, def] of m) {
-      if (re.test(status)) {
-        return typeof def === 'function' ? def(status) : { ...def };
-      }
+    for (const [re, def] of rules) {
+      if (re.test(status)) return { ...def, label: status.length > 80 ? status.slice(0,77)+'…' : status };
     }
-    return { kind:'work', icon:'>_', label: status.length > 60 ? status.slice(0,57)+'…' : status };
-  }
-
-  function activityTimelineHTML(steps, opts) {
-    if (!steps || !steps.length) return '';
-    const total = steps.length;
-    const visible = Math.min(total, 7);
-    const compact = steps.slice(-visible).map(s =>
-      `<span class="acti-icon acti-${s.kind}" title="${escHtml(s.label)}">${s.icon}</span>`).join('');
-    const items = steps.map(s =>
-      `<li class="acti-step"><span class="acti-icon acti-${s.kind}">${s.icon}</span><span class="acti-step-label">${escHtml(s.label)}</span></li>`).join('');
-    const isLive = !!(opts && opts.live);
-    const countLabel = ruPlural(total, 'шаг', 'шага', 'шагов');
-    // Live-строка один-в-один с Claude:
-    // [↻] [иконки] … N шагов Working..
-    const liveRow = `<div class="acti-live-row${isLive ? '' : ' finished'}">
-      <span class="acti-pulse${isLive ? ' live' : ' done'}" aria-hidden="true">${isLive ? '\u21BB' : '\u2713'}</span>
-      <span class="acti-live-icons">${compact}</span>
-      ${total > visible ? '<span class="acti-more" title="раскройте ниже, чтобы увидеть все">…</span>' : ''}
-      <span class="acti-live-count">${total} ${countLabel}</span>
-      ${isLive ? '<span class="acti-thinking">Working<span class="acti-dots"><span>.</span><span>.</span><span>.</span></span></span>' : ''}
-    </div>`;
-    // Expand-блок «как у тебя» — кликабельная свёрнутая сводка «Показать N шагов».
-    const details = `<details class="acti-details">
-      <summary class="acti-summary">Показать ${total} ${countLabel} <span class="acti-summary-arrow">▾</span></summary>
-      <ol class="acti-steps">${items}</ol>
-    </details>`;
-    return liveRow + details;
+    return { kind:'work', svgIcon: STEP_SVG.work, label: status.length > 80 ? status.slice(0,77)+'…' : status };
   }
 
   function ruPlural(n, one, few, many) {
@@ -1202,6 +1227,56 @@
     if (m10 === 1 && m100 !== 11) return one;
     if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
     return many;
+  }
+
+  function activityTimelineHTML(steps, opts) {
+    if (!steps || !steps.length) return '';
+    const isLive = !!(opts && opts.live);
+    const total = steps.length;
+    const CHIP_MAX = 5;
+    const chipSteps = steps.slice(-CHIP_MAX);
+    const countLabel = ruPlural(total, 'шаг', 'шага', 'шагов');
+
+    // Compact chip row (last N icons + optional thinking chip)
+    const chips = chipSteps.map(s =>
+      `<span class="acti-chip kind-${s.kind}" title="${escHtml(s.label)}">${s.svgIcon}</span>`
+    ).join('');
+    const thinkChip = isLive
+      ? `<span class="acti-chip kind-thinking" title="Обрабатываю">${STEP_SVG.thinking}</span>`
+      : '';
+
+    // Pulse indicator SVG
+    const pulseSVG = isLive
+      ? '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M11 6A5 5 0 1 1 9 2.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M9 1v3H6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      : '<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    // Chevrons
+    const chevUp   = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 7L5.5 3.5 9 7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const chevDown = '<svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 4L5.5 7.5 9 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    // Full step list for expanded panel
+    const stepItems = steps.map(s =>
+      `<li class="acti-step-row">
+        <span class="acti-step-icon kind-${s.kind}">${s.svgIcon}</span>
+        <span class="acti-step-label">${escHtml(s.label)}</span>
+      </li>`
+    ).join('');
+
+    const fnOpen  = `(function(b){var w=b.closest('.acti-wrap');w.querySelector('.acti-expanded').hidden=false;w.classList.add('open');})(this)`;
+    const fnClose = `(function(b){var w=b.closest('.acti-wrap');w.querySelector('.acti-expanded').hidden=true;w.classList.remove('open');})(this)`;
+
+    return `<div class="acti-wrap">
+      <div class="acti-expanded" hidden>
+        <button class="acti-show-less" onclick="${fnClose}">${chevUp} Show less</button>
+        <ol class="acti-steps-list">${stepItems}</ol>
+      </div>
+      <div class="acti-compact">
+        <span class="acti-pulse-dot ${isLive ? 'live' : 'done'}">${pulseSVG}</span>
+        <span class="acti-chip-row">${chips}${thinkChip}</span>
+        ${isLive ? '<span class="acti-thinking-label">Thinking<span class="acti-dots-anim"><span>.</span><span>.</span><span>.</span></span></span>' : ''}
+        <button class="acti-expand-btn" onclick="${fnOpen}">${chevDown} ${total} ${countLabel}</button>
+      </div>
+    </div>`;
   }
   // ╚════════════════════════════════════════════════════════════════════════╝
 
@@ -1338,12 +1413,16 @@
   //   mid      -> рабочая лошадка для код-тасков.
   //   light    -> для мелких Q&A.
   //   reasoning-> пошаговое планирование.
+  // Ordered by cost (ascending) — router prefers cheapest model that can handle the task.
+  // Falls back up the list on budget/availability errors (isBudgetOrModelError).
   const ORCHESTRATOR_MODELS = [
-    { id: 'deepseek/deepseek-coder',                  tier: 'mid',     coding: true, vision: false, cost: 1 },
-    { id: 'deepseek/deepseek-r1',                     tier: 'reasoning', coding: false, vision: false, cost: 3 },
-    { id: 'anthropic/claude-sonnet-4',                tier: 'strong',  coding: true, vision: true, cost: 6 },
-    { id: 'anthropic/claude-sonnet-4.5',              tier: 'strong',  coding: true, vision: true, cost: 8 },
-    { id: 'anthropic/claude-sonnet-4.6-thinking-high', tier: 'premium', coding: true, vision: true, cost: 12 }
+    { id: 'deepseek/deepseek-coder',                   tier: 'mid',       coding: true,  vision: false, cost: 1  },
+    { id: 'openai/gpt-4o-mini',                        tier: 'mid',       coding: true,  vision: true,  cost: 2  },
+    { id: 'deepseek/deepseek-r1',                      tier: 'reasoning', coding: true,  vision: false, cost: 3  },
+    { id: 'anthropic/claude-sonnet-4',                 tier: 'strong',    coding: true,  vision: true,  cost: 6  },
+    { id: 'anthropic/claude-sonnet-4.5',               tier: 'strong',    coding: true,  vision: true,  cost: 8  },
+    { id: 'anthropic/claude-sonnet-4.6',               tier: 'strong',    coding: true,  vision: true,  cost: 10 },
+    { id: 'anthropic/claude-sonnet-4.6-thinking-high', tier: 'premium',   coding: true,  vision: true,  cost: 12 },
   ];
 
   function orchestratorPrompt(mode) {
@@ -1358,13 +1437,15 @@
       'Ты лёгкий маршрутизатор (deepseek-coder). Реши, что делать с запросом пользователя.',
       '',
       'Правила:',
-      '- "direct" ТОЛЬКО для тривиального Q&A: приветствие, перевод одной фразы, математика в одно действие, факт. Поле answer тогда содержит КРАТКИЙ прямой ответ.',
-      '- Любая задача про СОЗДАТЬ / ИЗМЕНИТЬ / УДАЛИТЬ / ОТЛАДИТЬ код/UI/файл/страницу (даже если пользователь просто говорит «посмотри/исправь/переделай/сделай красивее») — ОБЯЗАТЕЛЬНО delegate или multi.',
-      '- Если в задаче картинка (vision) — выбирай модель с меткой vision (по умолчанию самую сильную).',
-      '- Если задача про код/UI/архитектуру — выбирай модель с меткой coding.',
-      '- Если задача содержит «[🎯 ЦЕЛЬ ОПЕРАЦИИ]» или «⌖ <tag>» — это явный указатель на правку конкретного файла. Игнорировать нельзя.',
+      '- "direct" ТОЛЬКО для чистого Q&A без кода: приветствие, перевод одной фразы, математика в одно действие, общий факт. Поле answer содержит КРАТКИЙ ответ.',
+      '- Любая задача про СОЗДАТЬ / ИЗМЕНИТЬ / УДАЛИТЬ / ОТЛАДИТЬ / ОБЪЯСНИТЬ код/UI/файл/страницу — ОБЯЗАТЕЛЬНО delegate или multi.',
+      '- Если в задаче картинка (vision) — выбирай модель с меткой vision (по умолчанию сильнейшую).',
+      '- Для React/Next.js/TypeScript/Tailwind/shadcn — предпочитай claude-sonnet-4.6 или claude-sonnet-4.6-thinking-high.',
+      '- Для алгоритмов, math, рассуждений — предпочитай deepseek-r1.',
+      '- Для быстрых/мелких задач (один компонент, мелкий фикс) — deepseek-coder или gpt-4o-mini.',
+      '- Если задача содержит «[🎯 ЦЕЛЬ ОПЕРАЦИИ]» или «⌖ <tag>» — это указатель на конкретный файл. Игнорировать нельзя.',
       '',
-      'ВАЖНО: пользователь разрабатывает современные приложения. По умолчанию выбирай delegate или multi — direct для таких задач НЕДОПУСТИМ.',
+      'ВАЖНО: платформа заточена под разработку современных веб-приложений (React, Next.js, лендинги, дашборды). По умолчанию delegate или multi. Direct — только для чистого Q&A без кода.',
       '',
       mode === 'multi'
         ? 'Верни ОДИН JSON-объект: {"action":"multi","models":["<id>","<id>","<id>"]} — выбери 2–3 id (один с coding, один с vision если есть картинка).'
@@ -1381,7 +1462,7 @@
     const resp = await fetch('/api/chat/openai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, max_tokens: 4096 })
+      body: JSON.stringify({ model, messages, max_tokens: 8192 })
     });
     if (!resp.ok) {
       let detail = '';
@@ -1873,7 +1954,7 @@
                   return { role: m.role, content };
                 }))
               ],
-              max_tokens: 4096
+              max_tokens: 8192
             }),
             signal: chatAbort ? chatAbort.signal : undefined
           });
@@ -2073,21 +2154,26 @@
     const logo = document.getElementById('modelLogo');
     if (!lab || !status) return;
     const PRETTY = {
-      'deepseek/deepseek-coder': 'DeepSeek Coder',
-      'deepseek/deepseek-r1': 'DeepSeek R1',
-      'deepseek/deepseek-r1': 'DeepSeek V4 Flash',
-      'anthropic/claude-sonnet-4.6-thinking-high': 'Claude Sonnet 4.6',
-      'deepseek/deepseek-coder': 'Claude 3 Haiku',
-      'deepseek/deepseek-coder': 'GPT-5 mini'
+      'deepseek/deepseek-coder':                   'DeepSeek Coder',
+      'openai/gpt-4o-mini':                        'GPT-4o mini',
+      'deepseek/deepseek-r1':                      'DeepSeek R1',
+      'anthropic/claude-sonnet-4':                 'Claude Sonnet 4',
+      'anthropic/claude-sonnet-4.5':               'Claude Sonnet 4.5',
+      'anthropic/claude-sonnet-4.6':               'Claude Sonnet 4.6',
+      'anthropic/claude-sonnet-4.6-thinking-high': 'Claude 4.6 Thinking',
+      'openai/gpt-4o':                             'GPT-4o',
     };
     // Сильные стороны каждой модели — показываем в шапке вместо строк
     // статуса (раньше там было «Делегирование → claude-sonnet-…», что шум).
-        const STRENGTHS = {
-      'deepseek/deepseek-coder':                'код, рефакторинг, отладка, длинный контекст',
-      'deepseek/deepseek-r1':                   'глубокие рассуждения, math, логика, пошаговый планинг',
-      'anthropic/claude-sonnet-4.6-thinking-high': 'код, UI/архитектура, vision, длинный контекст',
-      'anthropic/claude-sonnet-4.5':            'код, UI/архитектура, vision, широкий стек',
-      'anthropic/claude-sonnet-4':              'код, длинный контекст, vision'
+    const STRENGTHS = {
+      'deepseek/deepseek-coder':                   'код, рефакторинг, отладка, длинный контекст',
+      'openai/gpt-4o-mini':                        'быстрый, экономичный, vision, базовые задачи',
+      'deepseek/deepseek-r1':                      'глубокие рассуждения, math, логика, пошаговый планинг',
+      'anthropic/claude-sonnet-4':                 'код, длинный контекст, vision',
+      'anthropic/claude-sonnet-4.5':               'код, UI/архитектура, vision, широкий стек',
+      'anthropic/claude-sonnet-4.6':               'React, Next.js, Tailwind, vision, современный стек',
+      'anthropic/claude-sonnet-4.6-thinking-high': 'глубокий код, UI/архитектура, vision, reasoning',
+      'openai/gpt-4o':                             'мультимодальный, код, vision, широкий стек',
     };
 
     const swap = /vision-модель:\s*[^\s··]+\s*→\s*([^\s·]+(?:\.[\w/-]+)?)/i.exec(status);
