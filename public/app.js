@@ -1118,34 +1118,20 @@
 
   function activityTimelineHTML(steps, opts) {
     if (!steps || !steps.length) return '';
-    const compact = steps.slice(-6).map(s =>
+    // Возьмём последние 7 шагов — как у Claude в строке действий.
+    const compact = steps.slice(-7).map(s =>
       `<span class="acti-icon acti-${s.kind}" title="${escHtml(s.label)}">${s.icon}</span>`).join('');
-    const items = steps.map(s =>
-      `<li class="acti-step"><span class="acti-icon acti-${s.kind}">${s.icon}</span><span class="acti-step-label">${escHtml(s.label)}</span></li>`).join('');
     const isLive = !!(opts && opts.live);
-    // Live: только компакт-строка, никаких details — иначе при каждом push
-    // создавалась бы вторая <details>, и пользователь видел дублированное «more».
-    if (isLive) {
-      return `<div class="acti-live-row">
-        <span class="acti-dots"><span></span><span></span><span></span></span>
-        <span class="acti-thinking">Working…</span>
-        <span class="acti-live-icons">${compact}</span>
-        <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
-      </div>`;
-    }
-    // Finished: persistent row + закрытый details-аккордеон.
-    return `<div class="acti-live-row finished">
-        <span class="acti-tick">✓</span>
-        <span class="acti-live-icons">${compact}</span>
-        <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
-      </div>
-      <details class="acti-timeline">
-        <summary class="acti-summary">
-          <span class="acti-summary-icons">${compact}</span>
-          <span class="acti-show-toggle">Show more</span>
-        </summary>
-        <ol class="acti-steps">${items}</ol>
-      </details>`;
+    // Одна строка = один блок. Во время работы — пульсирующие точки,
+    // после завершения — галочка. Никаких details/timeline в финальном состоянии,
+    // чтобы не дублировать визуальный шум.
+    return `<div class="acti-live-row${isLive ? '' : ' finished'}">
+      ${isLive
+        ? '<span class="acti-dots"><span></span><span></span><span></span></span><span class="acti-thinking">Working…</span>'
+        : '<span class="acti-tick">✓</span>'}
+      <span class="acti-live-icons">${compact}</span>
+      <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
+    </div>`;
   }
 
   function ruPlural(n, one, few, many) {
