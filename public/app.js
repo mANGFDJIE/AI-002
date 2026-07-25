@@ -1075,7 +1075,16 @@
   function renderMarkdown(text) {
     if (!text) return '';
     let html = escHtml(text);
-    html = html.replace(/```([a-zA-Z0-9+_-]*)\n?([\s\S]*?)```/g, (m, lang, code) => `<pre><code class="language-${lang}">${code.trim()}</code></pre>`);
+    // Fenced code-блоки заворачиваем в <details> — код свёрнут по умолчанию,
+    // пользователь сам решает, развернуть ли. Если провайдер выдаёт код в
+    // чате (вместо файлов), пузырь не превращается в простыню.
+    html = html.replace(/```([a-zA-Z0-9+_-]*)\n?([\s\S]*?)```/g, (m, lang, code) => {
+      const body = code.trim();
+      const lines = (body.match(/\n/g) || []).length + 1;
+      const bytes = body.length;
+      const tag = (lang || 'code').toLowerCase();
+      return `<details class="codefold"><summary>📄 <b>${tag}</b> · ${lines} стр · ${fmtSize(bytes)} · развернуть</summary><pre><code class="language-${lang}">${body}</code></pre></details>`;
+    });
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
