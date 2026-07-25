@@ -1439,6 +1439,7 @@
             const reply = await runOrchestrator(content, selectedPreset.router, (status) => {
               if (labelEl) labelEl.textContent = status;
               updateThinkingModel(thinkEl, decoration + ' — ' + status);
+              updateOrchestratorActiveModel(status);
             }, attachments);
             if (reply && reply.error) {
               // Показываем ошибку как содержимое пузыря — иначе выглядит как «пустой ответ».
@@ -1446,6 +1447,9 @@
             } else {
               full = (reply && reply.text) || '';
             }
+            // Шапку возвращаем в нормальное AUTO-состояние (модель только что
+            // поработала, теперь снова ждёт следующего запроса).
+            try { setActiveModel('auto', 'Авто'); } catch (_) {}
           } else {
             // ── Прямой SSE-стрим к выбранной модели ────────────────
             // Шлём реальный id модели у провайдера (deepseek-chat / deepseek-reasoner),
@@ -1645,6 +1649,66 @@
         span.textContent = modelName;
         status.appendChild(span);
       }
+    }
+  }
+
+  // Обновляет шапку «Active model» по статус-строке оркестратора, чтобы пользователь
+  // видел кто сейчас реально работает (роутер / делегат / синтезатор / мульти),
+  // а не застывший «Авто» от момента отправки.
+  function updateOrchestratorActiveModel(status) {
+    const lab = document.getElementById('activeModelLabel');
+    const desc = document.getElementById('activeModelDesc');
+    const type = document.getElementById('activeModelType');
+    const logo = document.getElementById('modelLogo');
+    if (!lab || !status) return;
+    const PRETTY = {
+      'deepseek/deepseek-chat': 'DeepSeek Chat',
+      'deepseek/deepseek-coder': 'DeepSeek Coder',
+      'deepseek/deepseek-r1': 'DeepSeek R1',
+      'deepseek/deepseek-v4-flash-thinking': 'DeepSeek V4 Flash',
+      'anthropic/claude-sonnet-4.6-thinking-high': 'Claude Sonnet 4.6',
+      'anthropic/claude-3-haiku': 'Claude 3 Haiku',
+      'openai/gpt-5-mini': 'GPT-5 mini'
+    };
+    const swap = /vision-модель:\s*[^\s··]+\s*→\s*([^\s·]+(?:\.[\w/-]+)?)/i.exec(status);
+    const deleg = /Делегирование\s*→\s*([^\s·]+(?:\.[\w/-]+)?)/i.exec(status);
+    const writes = /Записываю файлы из\s+([^\s:]+)/i.exec(status);
+
+    let label = null, sub = null, badge = null;
+    const id = (swap && swap[1]) || (deleg && deleg[1]) || (writes && writes[1]);
+    if (id && PRETTY[id]) {
+      label = PRETTY[id];
+      badge = /claude/i.test(id) ? 'Coding'
+            : /deepseek-(coder|v4)/i.test(id) ? 'Coding'
+            : /deepseek-r1/i.test(id) ? 'Reasoning'
+            : /haiku|mini/i.test(id) ? 'Light' : 'Active';
+      sub = status;
+    } else if (/Маршрутизаци/.test(status)) {
+      label = 'Маршрутизация'; badge = 'Router';
+      sub = 'DeepSeek Chat решает, кого позвать';
+    } else if (/Синтез/.test(status)) {
+      label = 'Синтез'; badge = 'Router';
+      sub = 'Склеиваю лучшие части ответов';
+    } else if (/Параллельный/i.test(status)) {
+      label = 'Мульти-агент'; badge = 'Multi';
+      sub = 'Несколько моделей работают параллельно';
+    } else if (/часть моделей/i.test(status)) {
+      label = 'Мульти-агент'; badge = 'Multi'; sub = status;
+    } else {
+      return;
+    }
+
+    lab.textContent = label;
+    if (desc) desc.textContent = sub;
+    if (type) {
+      type.textContent = badge;
+      type.style.background = 'rgba(167,139,250,0.18)';
+      type.style.color = '#cbb6ff';
+    }
+    if (logo) {
+      logo.textContent = (label || 'A')[0].toUpperCase();
+      logo.style.background = 'linear-gradient(135deg,#a78bfa,#3b82f6)';
+      logo.style.boxShadow = '0 0 10px rgba(167,139,250,0.5)';
     }
   }
 
