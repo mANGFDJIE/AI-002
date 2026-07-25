@@ -1904,7 +1904,7 @@ div:has(> :contains("Made with Replit")) { display: none !important; }
 
 
 /* ── Activity timeline (Claude.ai-style) ─────────────────────────────────── */
-.acti-live { display: block; margin-left: 8px; flex: 1; min-width: 0; }
+.acti-live { display: block; margin: 6px 0 -2px 24px; padding: 0; min-height: 0; flex: none; }
 .acti-live-row { display: flex; align-items: center; gap: 10px; padding: 2px 0; }
 .acti-live-icons { display: inline-flex; gap: 4px; }
 .acti-live-count { color: #8b949e; font-size: 11px; letter-spacing: 0.2px; }

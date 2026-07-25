@@ -1028,9 +1028,9 @@
       <div class="msg-agent-status">
         <div class="status-icon"><div class="spinner"></div></div>
         <span class="status-text">Думаю…</span>
-        <div class="acti-live"></div>
         ${modelName ? `<span class="model-tag">${modelName}</span>` : ''}
       </div>
+      <div class="acti-live"></div>
       <div class="load-bar"><div class="load-bar-fill"></div></div>`;
     messagesEl.appendChild(div);
     scrollBottom();
@@ -1123,18 +1123,22 @@
     const items = steps.map(s =>
       `<li class="acti-step"><span class="acti-icon acti-${s.kind}">${s.icon}</span><span class="acti-step-label">${escHtml(s.label)}</span></li>`).join('');
     const isLive = !!(opts && opts.live);
-    // Persistent row: персистентная строчка с иконками + счётчиком (как у Claude's «N actions»).
-    // Во время работы пульсируют точки «Thinking..», после — галочка ✓.
-    const liveRow = `
-      <div class="acti-live-row${isLive ? '' : ' finished'}">
-        ${isLive
-          ? '<span class="acti-dots"><span></span><span></span><span></span></span><span class="acti-thinking">Working…</span>'
-          : '<span class="acti-tick">✓</span>'}
+    // Live: только компакт-строка, никаких details — иначе при каждом push
+    // создавалась бы вторая <details>, и пользователь видел дублированное «more».
+    if (isLive) {
+      return `<div class="acti-live-row">
+        <span class="acti-dots"><span></span><span></span><span></span></span>
+        <span class="acti-thinking">Working…</span>
         <span class="acti-live-icons">${compact}</span>
         <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
       </div>`;
-    // Полный лог под строкой — раскрывается по клику «Show more», как у Claude.
-    const details = `
+    }
+    // Finished: persistent row + закрытый details-аккордеон.
+    return `<div class="acti-live-row finished">
+        <span class="acti-tick">✓</span>
+        <span class="acti-live-icons">${compact}</span>
+        <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
+      </div>
       <details class="acti-timeline">
         <summary class="acti-summary">
           <span class="acti-summary-icons">${compact}</span>
@@ -1142,7 +1146,6 @@
         </summary>
         <ol class="acti-steps">${items}</ol>
       </details>`;
-    return liveRow + '' + details;
   }
 
   function ruPlural(n, one, few, many) {
