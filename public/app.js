@@ -1093,12 +1093,14 @@
   // (объяснения, инструкции, приветствия) остаётся как есть.
   function stripCodeFromChat(text, changes) {
     if (!text) return text;
-    if (!changes || !changes.length) return text;
-    const list = changes.map(c => '`' + c.path + '`').join(', ');
+    // Всегда режем fenced-блоки из чата — даже если extractCodeChanges их не
+    // распознал (бывает у нестандартных провайдеров / нетипичных форматов).
+    // Если файл распознан — дописываем в конец список записанных файлов.
     let out = text.replace(/```[\s\S]*?```/g, '');
     out = out.replace(/\n{3,}/g, '\n\n').trim();
     if (!out) out = 'Готово.';
-    return out + '\n\n📁 **Записано в workspace**: ' + list + '\n';
+    const list = changes && changes.length ? changes.map(c => '`' + c.path + '`').join(', ') : '';
+    return list ? (out + '\n\n📁 **Записано в workspace**: ' + list + '\n') : out;
   }
 
   // ── Оркестратор (gpt-5-mini как маршрутизатор) ────────────────
@@ -1441,13 +1443,16 @@
             updateStreaming();
           }
           const elapsed = Math.max(1, Math.round((Date.now() - start) / 1000));
+          // Сначала извлекаем файлы, очищаем пузырь от кода, и только потом
+          // рендерим и сохраняем в localStorage — иначе старый код всплывает
+          // при reload.
+          const lChanges = extractCodeChanges(full);
+          if (lChanges.length) {
+            await applyCodeChanges(lChanges);
+            full = stripCodeFromChat(full, lChanges);
+          }
           finalizeStreaming(thinkEl, full, elapsed, decoration, false);
           saveMessages('assistant', full, { model: 'local' });
-          const changes = extractCodeChanges(full);
-          if (changes.length) {
-            await applyCodeChanges(changes);
-            full = stripCodeFromChat(full, changes);
-          }
           sending = false;
           sendBtn.disabled = false;
           return;
@@ -1556,13 +1561,15 @@
           }
           if (full) updateStreaming();
           const elapsed = Math.max(1, Math.round((Date.now() - start) / 1000));
+          // Извлекаем файлы ДО рендера/save — иначе код всплывает в пузыре
+          // и в localStorage.
+          const dChanges = extractCodeChanges(full);
+          if (dChanges.length) {
+            await applyCodeChanges(dChanges);
+            full = stripCodeFromChat(full, dChanges);
+          }
           finalizeStreaming(thinkEl, full, elapsed, decoration, false);
           saveMessages('assistant', full, { model: currentModel });
-          const changes = extractCodeChanges(full);
-          if (changes.length) {
-            await applyCodeChanges(changes);
-            full = stripCodeFromChat(full, changes);
-          }
         } catch (e) {
           console.error(e);
           finalizeStreaming(thinkEl, 'Ошибка DeepSeek: ' + (e.message || e), 0, decoration, true);
@@ -1636,19 +1643,21 @@
       }
 
       const elapsed = Math.max(1, Math.round((Date.now() - start) / 1000));
-      finalizeStreaming(thinkEl, full, elapsed, decoration, false);
       const cls = window.WEBLLM_classify?.(content) || {};
-      saveMessages('assistant', full, { model: modelId, task: cls.task, complexity: cls.complexity });
 
       if (window.SupabaseSync?.enabled && currentModel === 'auto' && autoInfo) {
         window.SupabaseSync.markModelLoaded(modelId, autoInfo.label, autoInfo.vram).catch(() => {});
       }
 
-      const changes = extractCodeChanges(full);
-      if (changes.length) {
-        await applyCodeChanges(changes);
-        full = stripCodeFromChat(full, changes);
+      // Сначала файлы и очистка пузыря, потом render/save — иначе код
+      // всплывает и в чате, и при reload из localStorage.
+      const oChanges = extractCodeChanges(full);
+      if (oChanges.length) {
+        await applyCodeChanges(oChanges);
+        full = stripCodeFromChat(full, oChanges);
       }
+      finalizeStreaming(thinkEl, full, elapsed, decoration, false);
+      saveMessages('assistant', full, { model: modelId, task: cls.task, complexity: cls.complexity });
 
       sending = false;
       sendBtn.disabled = false;
