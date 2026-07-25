@@ -78,7 +78,7 @@
       };
     }
     // Если облачный провайдер доступен — по умолчанию стартуем с ⭐ Авто
-    // (лёгкий маршрутизатор gpt-5-mini: сам решит, кому делегировать).
+    // (лёгкий маршрутизатор deepseek-coder: сам решит, кому делегировать).
     if (config.hasOpenAI && (currentModel === 'auto' || currentModel === 'orchestrator')) {
       currentModel = 'orchestrator';
     }
@@ -90,12 +90,14 @@
       const isOpenAI = base.includes('openai');
       const isOpenRouter = base.includes('openrouter');
       const isVseGpt = base.includes('vsegpt');
-      // vsegpt принимает только префиксные id формата "provider/model" (deepseek/deepseek-chat и т.д.);
-      // нативный DeepSeek ждёт "deepseek-chat" без слеша; OpenRouter — "deepseek/deepseek-chat-v3.1".
-      const v3Model = isOpenRouter ? 'deepseek/deepseek-chat-v3.1'
-                                   : isVseGpt   ? 'deepseek/deepseek-chat'
-                                   : isDeepSeek ? 'deepseek-chat'
-                                   : (isOpenAI ? 'gpt-4o-mini' : '');
+      // vsegpt принимает только префиксные id формата "provider/model" (напр. deepseek/deepseek-coder);
+      // нативный DeepSeek ждёт id без слеша; OpenRouter — с версией.
+      // Router для default LLM (используется в fallback outside of vsegpt orchestrator).
+      // deepseek-chat удалён как «Мы видим»-verbose, переключаем на coder.
+      const routerFallback = isVseGpt  ? 'deepseek/deepseek-coder'
+                                    : isOpenRouter ? 'deepseek/deepseek-coder'
+                                    : isDeepSeek ? 'deepseek-coder'
+                                    : (isOpenAI ? 'gpt-4o-mini' : '');
       const r1Model = (isOpenRouter || isVseGpt) ? 'deepseek/deepseek-r1'
                                    : isDeepSeek ? 'deepseek-reasoner'
                                    : '';
@@ -108,7 +110,7 @@
         name: v3Label, label: v3Label, color: 'pro',
         desc: v3Desc,
         openai: true,
-        apiModel: v3Model
+        apiModel: routerFallback
       };
       if (r1Model) {
         modelPresets['deepseek-reasoner'] = {
@@ -125,17 +127,17 @@
       // if (currentModel === 'auto') не пыталась дёргать window.llm.pickAuto.
       modelPresets['orchestrator'] = {
         name: '⭐ Авто', label: '⭐ Авто', color: 'auto',
-        desc: 'Лёгкий маршрутизатор (gpt-5-mini) решит: ответить прямой или делегировать сильному эксперту (Claude Sonnet 4.6 H, Opus 4.5, Sonnet 4.5, Sonnet 4, DeepSeek Coder, R1…)',
+        desc: 'Лёгкий маршрутизатор (DeepSeek Coder) решит: ответить прямой или делегировать сильной модели (Claude Sonnet 4.6 H / 4.5 / 4, DeepSeek R1 для рассуждений)',
         openai: true,
-        apiModel: 'openai/gpt-5-mini',
+        apiModel: 'deepseek/deepseek-coder',
         router: 'auto',
         featured: true
       };
       modelPresets['multi'] = {
         name: '⭐ Мульти-агент', label: '⭐ Мульти-агент', color: 'pro',
-        desc: 'Маршрутизатор рассуждает и параллельно опрашивает 3 сильных эксперта (Claude Sonnet 4.6 H, Opus 4.5, Sonnet 4.5, Sonnet 4, DeepSeek Coder, R1…), затем синтезирует финальный ответ',
+        desc: 'Маршрутизатор (DeepSeek Coder) параллельно опрашивает 3 топ-модели (Claude Sonnet 4.6 H / 4.5 / 4, DeepSeek R1) и синтезирует ответ',
         openai: true,
-        apiModel: 'openai/gpt-5-mini',
+        apiModel: 'deepseek/deepseek-coder',
         router: 'multi',
         featured: true
       };
@@ -145,7 +147,6 @@
       if (isVseGpt) {
         const featured = [
           { id: 'anthropic/claude-sonnet-4.6-thinking-high', label: 'Claude S 4.6 H',     desc: 'Anthropic Claude Sonnet 4.6 (high) — топ для кода/агентов, держит длинный контекст и современный стек' },
-          { id: 'deepseek/deepseek-v4-flash-thinking',      label: 'DS V4 Flash Think',  desc: 'DeepSeek V4 Flash + thinking — крепкий код, рассуждения с chain-of-thought' },
           { id: 'anthropic/claude-sonnet-4.5',                label: 'Claude S 4.5',       desc: 'Anthropic Claude Sonnet 4.5 — топ для современного кода, широкий стек' },
           { id: 'anthropic/claude-sonnet-4',                  label: 'Claude S 4',         desc: 'Anthropic Claude Sonnet 4 — топ для современного кода, длинный контекст' },
           { id: 'deepseek/deepseek-coder',                   label: 'DS Coder',           desc: 'DeepSeek Coder — крепкий кодер на длинном контексте' },
@@ -1161,34 +1162,30 @@
     return list ? (out + '\n\n📁 **Записано в workspace**: ' + list + '\n') : out;
   }
 
-  // ── Оркестратор (gpt-5-mini как маршрутизатор) ────────────────
+  // ── Оркестратор (deepseek-coder как маршрутизатор) ────────────────
   // Список моделей, реально доступных на базовом тарифе vsegpt
   // (gpt-5.4-pro-high, claude-opus-4.6, deepseek-v4-pro и v3.2-alt-thinking
   // требуют upgrade — проверено эмпирически).
   // coding:true = сильные на современном коде/UI/архитектуре (агентская работа).
   // Ростер моделей для авто-оркестратора (VseGPT-базовый тариф).
   //
-  // Сильные модели ВЫШЕ, дешёвые НИЖЕ. Router (deepseek-chat) сортирует сверху-вниз
-  // по ходу выбора делегата. Vision-фильтр `pickVision` тоже идёт сверху — теперь
-  // Opus/Sonnet-4.6 идёт первым при наличии картинки.
+  // Дешёвые модели ВЫШЕ, дорогие НИЖЕ. Router (deepseek-coder) выбирает
+  // по цене-вверху: бюджет тратится на дорогое только при провале дешёвых. Vision-фильтр `pickVision` тоже идёт сверху — теперь
+  // Sonnet 4.6 H идёт первым при наличии картинки.
   //
   // coding=true  -> сильный современный код/UI/архитектура (агентская работа).
   // tier:
-  //   premium  -> Opus thinking (дорого, но топ).
+  //   premium  -> Sonnet 4.6 H (дорого, но топ кодинг/vision).
   //   strong   -> Sonnet 4.x (тоже coding-агент, но дешевле премиума).
   //   mid      -> рабочая лошадка для код-тасков.
   //   light    -> для мелких Q&A.
   //   reasoning-> пошаговое планирование.
   const ORCHESTRATOR_MODELS = [
-    { id: 'anthropic/claude-sonnet-4.6-thinking-high',  tier: 'premium',   coding: true,  vision: true,  cost: 12 },
-    { id: 'anthropic/claude-sonnet-4.5',               tier: 'strong',    coding: true,  vision: true,  cost: 8 },
-    { id: 'anthropic/claude-sonnet-4',                 tier: 'strong',    coding: true,  vision: true,  cost: 6 },
-    { id: 'deepseek/deepseek-coder',                   tier: 'mid',       coding: true,  vision: false, cost: 1 },
-    { id: 'deepseek/deepseek-v4-flash-thinking',       tier: 'mid',       coding: true,  vision: false, cost: 2 },
-    { id: 'deepseek/deepseek-r1',                      tier: 'reasoning', coding: false, vision: false, cost: 3 },
-    { id: 'openai/gpt-5-mini',                         tier: 'light',     coding: false, vision: true,  cost: 2 },
-    { id: 'anthropic/claude-3-haiku',                  tier: 'light',     coding: false, vision: true,  cost: 2 },
-    { id: 'deepseek/deepseek-chat',                    tier: 'light',     coding: false, vision: false, cost: 1 }
+    { id: 'deepseek/deepseek-coder',                  tier: 'mid',     coding: true, vision: false, cost: 1 },
+    { id: 'deepseek/deepseek-r1',                     tier: 'reasoning', coding: false, vision: false, cost: 3 },
+    { id: 'anthropic/claude-sonnet-4',                tier: 'strong',  coding: true, vision: true, cost: 6 },
+    { id: 'anthropic/claude-sonnet-4.5',              tier: 'strong',  coding: true, vision: true, cost: 8 },
+    { id: 'anthropic/claude-sonnet-4.6-thinking-high', tier: 'premium', coding: true, vision: true, cost: 12 }
   ];
 
   function orchestratorPrompt(mode) {
@@ -1200,7 +1197,7 @@
     return [
       'ЖЁСТКОЕ ПРАВИЛО: ответ должен состоять ИСКЛЮЧИТЕЛЬНО из одного валидного JSON. Никаких пояснений, размышлений, prose, Markdown-обёрток до или после JSON. Только JSON.',
       '',
-      'Ты лёгкий маршрутизатор (deepseek-chat). Реши, что делать с запросом пользователя.',
+      'Ты лёгкий маршрутизатор (deepseek-coder). Реши, что делать с запросом пользователя.',
       '',
       'Правила:',
       '- "direct" ТОЛЬКО для тривиального Q&A: приветствие, перевод одной фразы, математика в одно действие, факт. Поле answer тогда содержит КРАТКИЙ прямой ответ.',
@@ -1271,10 +1268,10 @@
   }
 
   async function runOrchestrator(content, mode, onStep, attachments) {
-    // Маршрутизатор: deepseek/deepseek-chat — НЕ тратит токены на скрытое «reasoning»
-    // (в отличие от gpt-5-mini, который блюл все 80 токенов на encrypted reasoning
+    // Маршрутизатор: deepseek/deepseek-coder — НЕ тратит токены на скрытое «reasoning»
+    // (deepseek-coder дешевле и без encrypted reasoning)
     // и не выдавал JSON). Проверено эмпирически через прямой curl.
-    const routerModel = 'deepseek/deepseek-chat';
+    const routerModel = 'deepseek/deepseek-coder';
     // Снимок проекта нужен только экспертам и синтезатору — роутер не должен
     // тратить токены на чужой код, его задача только классифицировать запрос.
     const ctx = await buildWorkspaceContextMessages();
@@ -1304,7 +1301,7 @@
         { role: 'user', content: userContentFor(content, attachments, supportsVision) }
       ];
     };
-    onStep && onStep('Маршрутизация (deepseek-chat)…');
+    onStep && onStep('Маршрутизация (deepseek-coder)…');
     let routerResp = '';
     let routerR;
     try {
@@ -1314,7 +1311,7 @@
       ]);
     } catch (err) {
       onStep && onStep('Маршрутизатор недоступен: ' + err.message);
-      return { text: '', error: 'Маршрутизатор gpt-5-mini: ' + err.message, model: routerModel };
+      return { text: '', error: 'Маршрутизатор deepseek-coder: ' + err.message, model: routerModel };
     }
     if (routerR.error) {
       onStep && onStep('Маршрутизатор: ' + routerR.error);
@@ -1335,7 +1332,7 @@
       // в котором модель вместо конкретного действия пишет «не могу/не указано».
       // Сюда попадают: «Мы получили запрос», «Возможно, подразумевается», «Нет конкретного
       // описания», «Давайте уточним», «без дополнительной информации» и т.д.
-      const verboseLeak = /Мы видим|Из файлов видно|Нужно помнить|Привет студент|Давайте разберёмся|Я рассмотрю|Ниже представлено|Ниже приведён|Мы получили запрос|В сообщении нет|Нет конкретного|Нет описания|Возможно,?\s*подразумевается|Возможно,?\s*имелось в виду|подразумевается последний|Давайте уточним|без дополнительной информации|не могу выполнить|не удалось выполнить|Не удалось выполнить|нужно больше контекста/i.test(directText);
+      const verboseLeak = /Мы видим|Из файлов видно|Нужно помнить|Привет студент|Давайте разберёмся|Я рассмотрю|Ниже представлено|Ниже приведён|Мы получили запрос|В сообщении нет|Нет конкретного|Нет описания|Возможно,?\s*подразумевается|Возможно,?\s*имелось в виду|подразумевается последний|Давайте уточним|без дополнительной информации|не могу выполнить|не удалось выполнить|Не удалось выполнить|нужно больше контекста|Мы должны|Скорее всего,?\s*для|Я предлагаю|Поэтому,?\s*нужно|Давайте я|Наша задача|Для этой задачи|Давайте (создам|сделаю|сверстаем)|привет студент/i.test(directText);
       const hasCodeBlock = /```[\s\S]+?(```|$)/.test(directText) || /<!--\s*file:|\/\/\s*file:/.test(directText)
                         || /^<!doctype\s+html/i.test(directText.trim()) || /^<html\b/i.test(directText.trim());
       if (verboseLeak || (looksLikeCodeTask(content) && !hasCodeBlock)) {
@@ -1432,7 +1429,7 @@
       ids = ids.filter(id => ORCHESTRATOR_MODELS.find(m => m.id === id)).slice(0, 3);
       if (!ids.length) {
         const coding = ORCHESTRATOR_MODELS.filter(m => m.coding).slice(0, 3).map(m => m.id);
-        ids = coding.length ? coding : ['anthropic/claude-sonnet-4.6-thinking-high', 'deepseek/deepseek-coder', 'openai/gpt-5-mini'];
+        ids = coding.length ? coding : ['anthropic/claude-sonnet-4.6-thinking-high', 'deepseek/deepseek-coder', 'deepseek/deepseek-coder'];
       }
       onStep && onStep('Параллельный опрос ' + ids.length + ' моделей…');
       const results = await Promise.all(ids.map(async id => {
@@ -1667,7 +1664,7 @@
       if (selectedPreset.openai) {
         if (labelEl) labelEl.textContent = 'Внешний API…';
         try {
-          // ── Оркестратор (gpt-5-mini сам решает: direct / delegate / multi).
+          // ── Оркестратор (deepseek-coder сам решает: direct / delegate / multi).
           if (selectedPreset.router) {
             const reply = await runOrchestrator(content, selectedPreset.router, (status) => {
               if (labelEl) labelEl.textContent = status;
@@ -1905,26 +1902,21 @@
     const logo = document.getElementById('modelLogo');
     if (!lab || !status) return;
     const PRETTY = {
-      'deepseek/deepseek-chat': 'DeepSeek Chat',
       'deepseek/deepseek-coder': 'DeepSeek Coder',
       'deepseek/deepseek-r1': 'DeepSeek R1',
-      'deepseek/deepseek-v4-flash-thinking': 'DeepSeek V4 Flash',
+      'deepseek/deepseek-r1': 'DeepSeek V4 Flash',
       'anthropic/claude-sonnet-4.6-thinking-high': 'Claude Sonnet 4.6',
-      'anthropic/claude-3-haiku': 'Claude 3 Haiku',
-      'openai/gpt-5-mini': 'GPT-5 mini'
+      'deepseek/deepseek-coder': 'Claude 3 Haiku',
+      'deepseek/deepseek-coder': 'GPT-5 mini'
     };
     // Сильные стороны каждой модели — показываем в шапке вместо строк
     // статуса (раньше там было «Делегирование → claude-sonnet-…», что шум).
-    const STRENGTHS = {
-      'deepseek/deepseek-chat':                 'лёгкий диалог, суммаризация, роутинг задач',
+        const STRENGTHS = {
       'deepseek/deepseek-coder':                'код, рефакторинг, отладка, длинный контекст',
-      'deepseek/deepseek-r1':                   'глубокие рассуждения, math, логика, пошаговый разбор',
-      'deepseek/deepseek-v4-flash-thinking':    'рассуждения + скорость, код с анализом',
+      'deepseek/deepseek-r1':                   'глубокие рассуждения, math, логика, пошаговый планинг',
       'anthropic/claude-sonnet-4.6-thinking-high': 'код, UI/архитектура, vision, длинный контекст',
       'anthropic/claude-sonnet-4.5':            'код, UI/архитектура, vision, широкий стек',
-      'anthropic/claude-sonnet-4':              'код, длинный контекст, vision',
-      'anthropic/claude-3-haiku':               'скорость, vision, короткие ответы',
-      'openai/gpt-5-mini':                      'vision, multimodal, быстрые ответы'
+      'anthropic/claude-sonnet-4':              'код, длинный контекст, vision'
     };
 
     const swap = /vision-модель:\s*[^\s··]+\s*→\s*([^\s·]+(?:\.[\w/-]+)?)/i.exec(status);
@@ -1943,10 +1935,10 @@
       sub = 'Сильные стороны: ' + (STRENGTHS[id] || 'мульти-задачи');
     } else if (/Маршрутизаци/.test(status)) {
       label = 'Маршрутизация'; badge = 'Router';
-      sub = 'Сильные стороны: ' + (STRENGTHS['deepseek/deepseek-chat'] || 'лёгкий диалог');
+      sub = 'Сильные стороны: ' + (STRENGTHS['deepseek/deepseek-coder'] || 'лёгкий диалог');
     } else if (/Синтез/.test(status)) {
       label = 'Синтез'; badge = 'Router';
-      sub = 'Сильные стороны: ' + (STRENGTHS['deepseek/deepseek-chat'] || 'лёгкий диалог');
+      sub = 'Сильные стороны: ' + (STRENGTHS['deepseek/deepseek-coder'] || 'лёгкий диалог');
     } else if (/Параллельный/i.test(status)) {
       label = 'Мульти-агент'; badge = 'Multi';
       const ids = (status.match(/(\w+\/\w+(?:-\w+)*(?:-[\d.]+)?(?:-thinking-high)?)/g) || []).filter(x => STRENGTHS[x]).slice(0, 2);
