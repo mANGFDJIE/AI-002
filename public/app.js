@@ -1118,27 +1118,31 @@
 
   function activityTimelineHTML(steps, opts) {
     if (!steps || !steps.length) return '';
-    const compact = steps.slice(-6).map(s => 
+    const compact = steps.slice(-6).map(s =>
       `<span class="acti-icon acti-${s.kind}" title="${escHtml(s.label)}">${s.icon}</span>`).join('');
-    const items = steps.map(s => 
+    const items = steps.map(s =>
       `<li class="acti-step"><span class="acti-icon acti-${s.kind}">${s.icon}</span><span class="acti-step-label">${escHtml(s.label)}</span></li>`).join('');
-    if (opts && opts.live) {
-      return `
-        <div class="acti-live-row">
-          <span class="acti-dots"><span></span><span></span><span></span></span>
-          <span class="acti-live-icons">${compact}</span>
-          <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
-        </div>`;
-    }
-    return `
+    const isLive = !!(opts && opts.live);
+    // Persistent row: персистентная строчка с иконками + счётчиком (как у Claude's «N actions»).
+    // Во время работы пульсируют точки «Thinking..», после — галочка ✓.
+    const liveRow = `
+      <div class="acti-live-row${isLive ? '' : ' finished'}">
+        ${isLive
+          ? '<span class="acti-dots"><span></span><span></span><span></span></span><span class="acti-thinking">Working…</span>'
+          : '<span class="acti-tick">✓</span>'}
+        <span class="acti-live-icons">${compact}</span>
+        <span class="acti-live-count">${steps.length} ${ruPlural(steps.length, 'шаг', 'шага', 'шагов')}</span>
+      </div>`;
+    // Полный лог под строкой — раскрывается по клику «Show more», как у Claude.
+    const details = `
       <details class="acti-timeline">
         <summary class="acti-summary">
           <span class="acti-summary-icons">${compact}</span>
-          <span class="acti-summary-count">${steps.length} ${ruPlural(steps.length, 'действие', 'действия', 'действий')}</span>
           <span class="acti-show-toggle">Show more</span>
         </summary>
         <ol class="acti-steps">${items}</ol>
       </details>`;
+    return liveRow + '' + details;
   }
 
   function ruPlural(n, one, few, many) {

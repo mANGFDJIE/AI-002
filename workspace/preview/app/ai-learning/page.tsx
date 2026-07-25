@@ -1,169 +1,188 @@
 'use client'
 
 import { useState } from 'react'
-import { Brain, Zap, Target, Users, ChevronRight, Play, BookOpen, Award } from 'lucide-react'
+import Link from 'next/link'
 
 export default function AILearningPage() {
-  const [activeTab, setActiveTab] = useState('courses')
+  const [selectedLevel, setSelectedLevel] = useState('beginner')
 
-  const courses = [
-    {
-      id: 1,
-      title: 'Основы машинного обучения',
-      description: 'Изучите принципы ML, алгоритмы и практическое применение',
-      duration: '12 недель',
-      level: 'Начинающий',
-      students: 2847,
-      rating: 4.8,
-      price: '₽15,999'
-    },
-    {
-      id: 2,
-      title: 'Глубокое обучение и нейронные сети',
-      description: 'Погрузитесь в мир deep learning и создавайте ИИ-модели',
-      duration: '16 недель',
-      level: 'Продвинутый',
-      students: 1923,
-      rating: 4.9,
-      price: '₽24,999'
-    },
-    {
-      id: 3,
-      title: 'Computer Vision на практике',
-      description: 'Обработка изображений, распознавание объектов, детекция',
-      duration: '10 недель',
-      level: 'Средний',
-      students: 1456,
-      rating: 4.7,
-      price: '₽19,999'
-    }
-  ]
-
-  const features = [
-    {
-      icon: <Brain className="w-8 h-8 text-blue-500" />,
-      title: 'ИИ-ментор',
-      description: 'Персональный AI-помощник адаптирует программу под ваш темп обучения'
-    },
-    {
-      icon: <Zap className="w-8 h-8 text-yellow-500" />,
-      title: 'Практические проекты',
-      description: 'Реальные задачи от ведущих tech-компаний для портфолио'
-    },
-    {
-      icon: <Target className="w-8 h-8 text-green-500" />,
-      title: 'Карьерная поддержка',
-      description: 'Помощь в трудоустройстве и подготовка к собеседованиям'
-    },
-    {
-      icon: <Users className="w-8 h-8 text-purple-500" />,
-      title: 'Комьюнити экспертов',
-      description: 'Сообщество практикующих ML-инженеров и data scientists'
-    }
-  ]
+  const courses = {
+    beginner: [
+      {
+        id: 1,
+        title: "Основы машинного обучения",
+        description: "Введение в ML, алгоритмы и базовые концепции",
+        duration: "4 недели",
+        level: "Начальный",
+        icon: "🤖"
+      },
+      {
+        id: 2,
+        title: "Python для AI",
+        description: "Изучите Python с фокусом на AI библиотеки",
+        duration: "3 недели", 
+        level: "Начальный",
+        icon: "🐍"
+      },
+      {
+        id: 3,
+        title: "Нейронные сети",
+        description: "Понимание архитектуры и принципов работы",
+        duration: "5 недель",
+        level: "Начальный",
+        icon: "🧠"
+      }
+    ],
+    intermediate: [
+      {
+        id: 4,
+        title: "Deep Learning с TensorFlow",
+        description: "Глубокое обучение и практические проекты",
+        duration: "6 недель",
+        level: "Средний",
+        icon: "⚡"
+      },
+      {
+        id: 5,
+        title: "Computer Vision",
+        description: "Обработка изображений и распознавание объектов",
+        duration: "5 недель",
+        level: "Средний", 
+        icon: "👁️"
+      },
+      {
+        id: 6,
+        title: "NLP и обработка текста",
+        description: "Анализ естественного языка и чат-боты",
+        duration: "4 недели",
+        level: "Средний",
+        icon: "💬"
+      }
+    ],
+    advanced: [
+      {
+        id: 7,
+        title: "Генеративные модели",
+        description: "GANs, VAE и создание контента с помощью AI",
+        duration: "8 недель",
+        level: "Продвинутый",
+        icon: "🎨"
+      },
+      {
+        id: 8,
+        title: "MLOps и развертывание",
+        description: "Продакшн системы и масштабирование ML",
+        duration: "6 недель",
+        level: "Продвинутый",
+        icon: "🚀"
+      }
+    ]
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-black/20"></div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16">
-          <div className="text-center">
-            <h1 className="text-5xl md:text-7xl font-bold text-white mb-6">
-              Изучай <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">ИИ</span>
-              <br />с экспертами
-            </h1>
-            <p className="text-xl text-gray-300 max-w-3xl mx-auto mb-8">
-              Станьте специалистом по искусственному интеллекту с персонализированной программой обучения от ведущих экспертов индустрии
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 flex items-center justify-center">
-                <Play className="w-5 h-5 mr-2" />
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-blue-900 to-purple-900">
+      <div className="container mx-auto px-6 py-12">
+        {/* Header */}
+        <div className="text-center mb-16">
+          <h1 className="text-5xl font-bold text-white mb-6 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            AI Обучение
+          </h1>
+          <p className="text-xl text-gray-300 max-w-3xl mx-auto">
+            Изучайте искусственный интеллект с современными курсами от основ до продвинутых техник
+          </p>
+        </div>
+
+        {/* Level Selector */}
+        <div className="flex justify-center mb-12">
+          <div className="bg-gray-800/50 backdrop-blur-lg rounded-xl p-2 border border-gray-700">
+            {['beginner', 'intermediate', 'advanced'].map((level) => (
+              <button
+                key={level}
+                onClick={() => setSelectedLevel(level)}
+                className={`px-6 py-3 rounded-lg font-medium transition-all duration-300 ${
+                  selectedLevel === level
+                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-lg'
+                    : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                }`}
+              >
+                {level === 'beginner' && 'Начальный'}
+                {level === 'intermediate' && 'Средний'}
+                {level === 'advanced' && 'Продвинутый'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Courses Grid */}
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-16">
+          {courses[selectedLevel].map((course) => (
+            <div
+              key={course.id}
+              className="bg-gray-800/30 backdrop-blur-lg border border-gray-700 rounded-2xl p-6 hover:border-blue-400/50 transition-all duration-300 hover:transform hover:scale-105 cursor-pointer group"
+            >
+              <div className="text-4xl mb-4">{course.icon}</div>
+              <h3 className="text-xl font-bold text-white mb-3 group-hover:text-blue-400 transition-colors">
+                {course.title}
+              </h3>
+              <p className="text-gray-400 mb-4 line-clamp-2">
+                {course.description}
+              </p>
+              <div className="flex justify-between items-center mb-4">
+                <span className="px-3 py-1 bg-blue-500/20 text-blue-300 rounded-full text-sm">
+                  {course.level}
+                </span>
+                <span className="text-gray-500 text-sm">⏱️ {course.duration}</span>
+              </div>
+              <button className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-3 rounded-lg font-medium hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300">
                 Начать обучение
               </button>
-              <button className="px-8 py-4 border-2 border-white/30 hover:border-white/50 text-white font-semibold rounded-lg transition-all duration-300 hover:bg-white/10">
-                Бесплатный урок
-              </button>
             </div>
+          ))}
+        </div>
+
+        {/* Features Section */}
+        <div className="grid md:grid-cols-3 gap-8 mb-16">
+          <div className="text-center">
+            <div className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">📚</span>
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Практические проекты</h3>
+            <p className="text-gray-400">Реальные задачи и проекты для закрепления знаний</p>
+          </div>
+          <div className="text-center">
+            <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">👥</span>
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Сообщество</h3>
+            <p className="text-gray-400">Общение с единомышленниками и экспертами</p>
+          </div>
+          <div className="text-center">
+            <div className="w-16 h-16 bg-gradient-to-r from-pink-500 to-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">🏆</span>
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Сертификаты</h3>
+            <p className="text-gray-400">Получите признанные сертификаты по завершении</p>
           </div>
         </div>
-      </div>
 
-      {/* Features Section */}
-      <div className="py-20 bg-slate-800/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-white mb-4">Почему выбирают нас?</h2>
-            <p className="text-gray-400 max-w-2xl mx-auto">
-              Современные методы обучения с использованием ИИ-технологий для максимально эффективного изучения
-            </p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {features.map((feature, index) => (
-              <div key={index} className="bg-slate-700/50 backdrop-blur-sm rounded-xl p-6 hover:bg-slate-700/70 transition-all duration-300 border border-slate-600/30">
-                <div className="mb-4">{feature.icon}</div>
-                <h3 className="text-xl font-semibold text-white mb-3">{feature.title}</h3>
-                <p className="text-gray-400">{feature.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Courses Section */}
-      <div className="py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold text-white mb-4">Популярные курсы</h2>
-            <p className="text-gray-400 max-w-2xl mx-auto">
-              От основ до продвинутых техник - выберите курс под свой уровень
-            </p>
-          </div>
-          
-          <div className="grid lg:grid-cols-3 gap-8">
-            {courses.map((course) => (
-              <div key={course.id} className="bg-slate-800/60 backdrop-blur-sm rounded-xl overflow-hidden border border-slate-600/30 hover:border-blue-500/50 transition-all duration-300 group">
-                <div className="h-48 bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center">
-                  <BookOpen className="w-16 h-16 text-white" />
-                </div>
-                <div className="p-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full">{course.level}</span>
-                    <div className="flex items-center text-yellow-400">
-                      <Award className="w-4 h-4 mr-1" />
-                      <span className="text-sm">{course.rating}</span>
-                    </div>
-                  </div>
-                  <h3 className="text-xl font-semibold text-white mb-3 group-hover:text-blue-400 transition-colors">{course.title}</h3>
-                  <p className="text-gray-400 mb-4">{course.description}</p>
-                  <div className="flex items-center justify-between text-sm text-gray-400 mb-4">
-                    <span>{course.duration}</span>
-                    <span>{course.students.toLocaleString()} студентов</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-2xl font-bold text-white">{course.price}</span>
-                    <button className="px-6 py-2 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-lg transition-all duration-300 flex items-center">
-                      Записаться
-                      <ChevronRight className="w-4 h-4 ml-2" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* CTA Section */}
-      <div className="py-20 bg-gradient-to-r from-blue-600 to-purple-600">
-        <div className="max-w-4xl mx-auto text-center px-4 sm:px-6 lg:px-8">
-          <h2 className="text-4xl font-bold text-white mb-6">Готовы начать карьеру в ИИ?</h2>
-          <p className="text-xl text-blue-100 mb-8">
-            Присоединяйтесь к 10,000+ студентов, которые уже изучают искусственный интеллект
+        {/* CTA Section */}
+        <div className="text-center bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 rounded-2xl p-12">
+          <h2 className="text-3xl font-bold text-white mb-4">
+            Готовы начать путь в мир AI?
+          </h2>
+          <p className="text-xl text-gray-300 mb-8">
+            Присоединяйтесь к тысячам студентов, изучающих будущее технологий
           </p>
-          <button className="px-12 py-4 bg-white hover:bg-gray-100 text-blue-600 font-bold rounded-lg transition-all duration-300 transform hover:scale-105 text-lg">
-            Начать бесплатно
-          </button>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/ai/learn">
+              <button className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg font-bold hover:shadow-lg hover:shadow-blue-500/25 transition-all duration-300">
+                Начать бесплатно
+              </button>
+            </Link>
+            <button className="px-8 py-4 border border-gray-600 text-gray-300 rounded-lg font-medium hover:border-gray-500 hover:text-white transition-all duration-300">
+              Смотреть демо
+            </button>
+          </div>
         </div>
       </div>
     </div>

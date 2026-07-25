@@ -1934,4 +1934,7 @@ div:has(> :contains("Made with Replit")) { display: none !important; }
 .acti-step { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; color: #c9d1d9; }
 .acti-step .acti-icon { width:16px; height:16px; font-size:9px; }
 .acti-step-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-.acti-final { display: block; }
+.acti-final { display: block; margin: 4px 0; }
+.acti-live-row.finished { padding: 4px 0; border-left: 2px solid rgba(0,255,0,0.4); padding-left: 8px; }
+.acti-tick { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%; background: rgba(63, 185, 80, 0.15); color: #3fb950; font-size: 12px; }
+.acti-thinking { color: #79c0ff; font-size: 12px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin-right: 6px; }
