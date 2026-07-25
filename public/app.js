@@ -897,6 +897,17 @@
       }
       changes.push({ path: filePath, content: code, lang: lang || (filePath.split('.').pop() || '') });
     }
+    // Fallback 4: модель выдала код БЕЗ ```lang``` обёртки (сплошной HTML/SVG).
+    // Это часто бывает у Claude/DeepSeek/GPT — тогда блоков ноль и пользователь
+    // видит простыню кода в чате. Ловим по сигнатуре начала.
+    if (!changes.length) {
+      const trimmed = content.trim();
+      if (/^<!doctype\s+html|^<html\b/i.test(trimmed)) {
+        changes.push({ path: 'index.html', content: trimmed, lang: 'html' });
+      } else if (/^<\?xml\b|^<svg\b/i.test(trimmed)) {
+        changes.push({ path: 'image.svg', content: trimmed, lang: 'xml' });
+      }
+    }
     return changes;
   }
 

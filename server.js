@@ -708,9 +708,15 @@ async function clearWorkspace(dir) {
 
 function sanitizePath(p) {
   if (!p || typeof p !== 'string') return null;
-  const normalized = path.normalize(p).replace(/^(\.\.(\/|\$))+/, '');
+  // Чистим мусор из имён: кавычки, бэктики, странные суффиксы типа ``\`.``
+  let cleaned = p.replace(/[`'"\\<>|?*\u0000-\u001F]/g, '').trim();
+  cleaned = cleaned.replace(/\.{2,}/g, '.');                 // тройные+ точки → одна
+  cleaned = cleaned.replace(/^[.\/\\]+/, '');                // убрать ведущие точки/слеши
+  if (!cleaned) return null;
+  const normalized = path.normalize(cleaned).replace(/^(\.\.(\/|\$))+/, '');
+  if (!normalized || normalized === '.' ) return null;
   if (normalized.startsWith('..') || path.isAbsolute(normalized)) return null;
-  return normalized;
+  return normalized.replace(/^[\/\\]+/, '');
 }
 
 function defaultIndexHtml() {
@@ -718,18 +724,41 @@ function defaultIndexHtml() {
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Превью</title>
+  <title>Старт проекта</title>
   <style>
-    body { font-family: system-ui, sans-serif; background: #0e0f13; color: #d4d6e0; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .start { text-align: center; }
-    h1 { font-size: 24px; margin-bottom: 10px; }
-    p { color: #8890aa; }
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(120% 80% at 50% 0%, #1b2238 0%, #0c0f17 60%);
+      color: #d8deeb; display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    .hero { max-width: 620px; text-align: center; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 999px;
+             background: rgba(120,140,255,0.12); color: #b6c0ff; font-size: 12px;
+             letter-spacing: 0.04em; text-transform: uppercase; }
+    h1 { font-size: 32px; margin: 14px 0 8px; color: #fff; }
+    p.sub { color: #9aa3bd; margin: 0 0 22px; }
+    .hints { display: grid; gap: 10px; max-width: 480px; margin: 0 auto; }
+    .hint { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px; padding: 12px 14px; text-align: left; font-size: 14px; }
+    .hint b { color: #d6dcf2; }
+    .hint code { background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 4px;
+                 font-family: ui-monospace, Menlo, monospace; color: #c8d2ff; }
   </style>
 </head>
 <body>
-  <div class="start">
-    <h1>Здесь будет превью</h1>
-    <p>Попросите агента создать или изменить проект</p>
+  <div class="hero">
+    <span class="badge">Готов к работе</span>
+    <h1>Здесь появится превью</h1>
+    <p class="sub">Попросите агента создать лендинг, форму, дашборд или любую страницу.<br>Файлы появятся в проводнике справа.</p>
+    <div class="hints">
+      <div class="hint"><b>«Сделай лендинг для кофейни»</b></div>
+      <div class="hint"><b>«Сайт-портфолио с тёмной темой»</b></div>
+      <div class="hint"><b>«Дашборд с графиком на Chart.js»</b></div>
+      <div class="hint"><code>// file: index.html</code> — метка для сохранения в файл</div>
+    </div>
   </div>
 </body>
 </html>`;
