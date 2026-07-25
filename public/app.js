@@ -1142,7 +1142,6 @@
   //   reasoning-> пошаговое планирование.
   const ORCHESTRATOR_MODELS = [
     { id: 'anthropic/claude-sonnet-4.6-thinking-high',  tier: 'premium',   coding: true,  vision: true,  cost: 12 },
-    { id: 'anthropic/claude-opus-4.6',                 tier: 'premium',   coding: true,  vision: true,  cost: 18 },
     { id: 'anthropic/claude-sonnet-4.5',               tier: 'strong',    coding: true,  vision: true,  cost: 8 },
     { id: 'anthropic/claude-sonnet-4',                 tier: 'strong',    coding: true,  vision: true,  cost: 6 },
     { id: 'deepseek/deepseek-coder',                   tier: 'mid',       coding: true,  vision: false, cost: 1 },
@@ -1306,6 +1305,23 @@
       }
       if (r.error) {
         onStep && onStep('Делегат ' + id + ': ' + r.error);
+        // Если ошибка «not available / upgrade plan» — идём по ростеру вниз
+        // и пробуем следующего coding/vision, пока не найдём доступного.
+        const isUnavailable = /not available|upgrade.*subscription|subscription plan|model.*not.*supported|недоступн/i.test(r.error || '');
+        if (isUnavailable) {
+          const tried = new Set([id]);
+          let fallbackId = null, fallbackResp = null;
+          for (const m of ORCHESTRATOR_MODELS) {
+            if (tried.has(m.id)) continue;
+            tried.add(m.id);
+            onStep && onStep('Модель ' + id + ' недоступна → пробую ' + m.id);
+            try {
+              const nr = await callOpenAI(m.id, delegateMessages(m.id));
+              if (!nr.error) { fallbackId = m.id; fallbackResp = nr; break; }
+            } catch (e) { /* keep walking */ }
+          }
+          if (fallbackId) return { text: fallbackResp.text, model: fallbackId };
+        }
         return { text: '', error: id + ': ' + r.error, model: id };
       }
       // Retry-once: если задача про код, а делегат вернул prose без блоков кода,
@@ -1823,7 +1839,6 @@
       'anthropic/claude-sonnet-4.6-thinking-high': 'код, UI/архитектура, vision, длинный контекст',
       'anthropic/claude-sonnet-4.5':            'код, UI/архитектура, vision, широкий стек',
       'anthropic/claude-sonnet-4':              'код, длинный контекст, vision',
-      'anthropic/claude-opus-4.6':              'премиум-агент, сложный код, vision, рассуждения',
       'anthropic/claude-3-haiku':               'скорость, vision, короткие ответы',
       'openai/gpt-5-mini':                      'vision, multimodal, быстрые ответы'
     };
