@@ -1118,14 +1118,19 @@
   // требуют upgrade — проверено эмпирически).
   // coding:true = сильные на современном коде/UI/архитектуре (агентская работа).
   const ORCHESTRATOR_MODELS = [
-    { id: 'anthropic/claude-sonnet-4.6-thinking-high', tier: 'mid',     coding: true,  vision: true },
-    { id: 'deepseek/deepseek-v4-flash-thinking',       tier: 'mid',     coding: true,  vision: false },
+    // ── Дешёвые coding-модели первыми: VseGPT-юзеры часто упираются в лимит
+    // запроса (10 ₽/query), а claude-sonnet-4.6-thinking-high стоит ~130 ₽ за
+    // обычную задачу. По умолчанию делегируем код дешёвой модели.
+    { id: 'deepseek/deepseek-coder',                  tier: 'mid',     coding: true,  vision: false, cost: 1 },
+    { id: 'deepseek/deepseek-v4-flash-thinking',       tier: 'mid',     coding: true,  vision: false, cost: 2 },
+    { id: 'openai/gpt-5-mini',                        tier: 'light',   coding: false, vision: true,  cost: 2 },
+    { id: 'anthropic/claude-3-haiku',                 tier: 'light',   coding: false, vision: true,  cost: 2 },
+    { id: 'deepseek/deepseek-chat',                   tier: 'light',   coding: false, vision: false, cost: 1 },
+    { id: 'deepseek/deepseek-r1',                     tier: 'reasoning', coding: false, vision: false, cost: 3 },
     // openai/o3 — временно отключён провайдером, поэтому в списке только безопасные альтернативы.
-    { id: 'deepseek/deepseek-coder',                  tier: 'mid',     coding: true,  vision: false },
-    { id: 'deepseek/deepseek-r1',                     tier: 'reasoning', coding: false, vision: false },
-    { id: 'openai/gpt-5-mini',                        tier: 'light',   coding: false, vision: true },
-    { id: 'anthropic/claude-3-haiku',                 tier: 'light',   coding: false, vision: true },
-    { id: 'deepseek/deepseek-chat',                   tier: 'light',   coding: false, vision: false }
+    // Дорогую модель держим последней — подключается только если нужна vision + coding
+    // и ни одна дешёвая vision-модель недоступна.
+    { id: 'anthropic/claude-sonnet-4.6-thinking-high', tier: 'mid',     coding: true, vision: true,  cost: 12 }
   ];
 
   function orchestratorPrompt(mode) {
@@ -1212,7 +1217,10 @@
       const cur = ORCHESTRATOR_MODELS.find(m => m.id === id);
       if (cur && cur.vision) return id;
       const candidates = ORCHESTRATOR_MODELS.filter(m => m.vision);
-      const alt = (preferCoding && candidates.find(m => m.coding)) || candidates[0] || null;
+      // Сначала пробуем дешёвую vision-модель (gpt-5-mini / claude-3-haiku);
+      // дорогую claude-sonnet-4.6-thinking-high оставляем последним вариантом.
+      const ordered = candidates.slice().sort((a, b) => (a.cost || 9) - (b.cost || 9));
+      const alt = (preferCoding ? ordered.find(m => m.coding) || ordered[0] : ordered[0]) || null;
       if (!alt || alt.id === id) return id;
       onStep && onStep('Замена делегата на vision-модель: ' + id + ' → ' + alt.id);
       return alt.id;
@@ -1253,7 +1261,7 @@
       return { text: decision.answer || routerResp, model: routerModel };
     }
     if (decision.action === 'delegate') {
-      const id = pickVision(decision.model || 'claude-sonnet-4.6-thinking-high', true);
+      const id = pickVision(decision.model || 'deepseek/deepseek-coder', true);
       if (!ORCHESTRATOR_MODELS.find(m => m.id === id)) {
         onStep && onStep('Маршрутизатор выбрал неизвестную модель: ' + id + ' — возвращаю прямой ответ');
         return { text: routerResp, model: routerModel };
@@ -1276,7 +1284,7 @@
       // Vision-эскалация перед фильтром — иначе для картинок уйдёт запрос к модели без vision.
       if (hasImageAttachment) ids = ids.map(id => pickVision(id, false));
       ids = ids.filter(id => ORCHESTRATOR_MODELS.find(m => m.id === id)).slice(0, 3);
-      if (!ids.length) ids = ['deepseek/deepseek-r1', 'deepseek/deepseek-v4-flash-thinking', 'anthropic/claude-sonnet-4.6-thinking-high'];
+      if (!ids.length) ids = ['deepseek/deepseek-coder', 'deepseek/deepseek-v4-flash-thinking', 'openai/gpt-5-mini'];
       onStep && onStep('Параллельный опрос ' + ids.length + ' моделей…');
       const results = await Promise.all(ids.map(async id => {
         try {
@@ -1342,8 +1350,15 @@
     const attachments = allAttach.filter(a => {
       if (a && a.type === 'select-element' && a.html) {
         const tagLabel = a.name || ('<' + (a.tag || 'div') + '>');
-        const where = a.pagePath ? ' (из файла ' + a.pagePath + ')' : '';
-        snippetBlocks.push('[Selected ' + tagLabel + where + ']\n```html\n' + a.html + '\n```');
+        const where = a.pagePath ? ' в файле `' + a.pagePath + '`' : '';
+        // Действие-ориентированный блок: модель явно понимает, что речь о
+        // конкретном элементе в конкретном файле, и что пользовательский текст
+        // ниже — это инструкция (удалить / переименовать / изменить и т.д.).
+        snippetBlocks.push(
+          '[Контекст: выделенный элемент ' + tagLabel + where + ']\n' +
+          'outerHTML:\n```html\n' + a.html + '\n```\n' +
+          '[Действие пользователя — следующий абзац ниже]\n'
+        );
         return false;
       }
       return true;
@@ -2035,12 +2050,13 @@
     function render() {
       const list = pending.map((p, i) => {
         if (p.type === 'select-element') {
-          // Replit-Agent-style: «⌖ <button#id.cls> ×» без имени файла и без размера.
-          return `<span class="attach-chip chip-select" data-i="${i}" title="Выбран: ${escHtml(p.name)}">⌖ ${escHtml(p.name)} <button type="button" class="attach-chip-x" data-i="${i}" title="Убрать">×</button></span>`;
+          // Текст чипа обёрнут в .attach-chip-text — он сжимается и получает
+          // ellipsis при длинном имени. Кнопка «×» живёт снаружи, всегда видна.
+          return `<span class="attach-chip chip-select" data-i="${i}" title="Выбран: ${escHtml(p.name)}"><span class="attach-chip-text">⌖ ${escHtml(p.name)}</span><button type="button" class="attach-chip-x" data-i="${i}" title="Убрать">×</button></span>`;
         }
         const icon = isImage(p.path) ? '🖼' : '📎';
         const fname = p.path.split('/').pop();
-        return `<span class="attach-chip" data-i="${i}" title="${p.path}">${icon} ${fname} <em>${fmtSize(p.size)}</em><button type="button" class="attach-chip-x" data-i="${i}" title="Убрать">×</button></span>`;
+        return `<span class="attach-chip" data-i="${i}" title="${escHtml(p.path)}"><span class="attach-chip-text">${icon} ${escHtml(fname)} <em>${fmtSize(p.size)}</em></span><button type="button" class="attach-chip-x" data-i="${i}" title="Убрать вложение">×</button></span>`;
       }).join('');
       chipRow.innerHTML = list;
       chipRow.querySelectorAll('.attach-chip-x').forEach(b => {

@@ -1860,10 +1860,11 @@ div:has(> :contains("Made with Replit")) { display: none !important; }
 /* Чипы прикреплённых файлов над textarea */
 .attach-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 4px 0 4px; min-height: 0; }
 .attach-chips:empty { display: none; }
-.attach-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg4, #1c222b); color: var(--text2, #c9d1d9); border: 1px solid var(--border, #2a313c); border-radius: 12px; padding: 3px 4px 3px 10px; font-size: 11.5px; max-width: 280px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.attach-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--bg4, #1c222b); color: var(--text2, #c9d1d9); border: 1px solid var(--border, #2a313c); border-radius: 12px; padding: 3px 4px 3px 10px; font-size: 11.5px; max-width: 360px; min-width: 0; }
+.attach-chip-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .attach-chip em { font-style: normal; opacity: .55; margin-left: 2px; }
-.attach-chip-x { background: transparent; border: 0; color: inherit; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 6px; border-radius: 8px; }
-.attach-chip-x:hover { background: rgba(255,255,255,0.08); }
+.attach-chip-x { background: transparent; border: 0; color: rgba(255,255,255,0.65); cursor: pointer; font-size: 18px; font-weight: 500; line-height: 1; padding: 0 8px; border-radius: 8px; flex-shrink: 0; transition: color 120ms ease, background 120ms ease; }
+.attach-chip-x:hover { color: #ff6b6b; background: rgba(255,107,107,0.18); }
 
 /* Сегментный спиннер рядом с логотипом активной модели во время генерации. */
 .model-loader { position: relative; width: 22px; height: 22px; color: var(--accent); display: none; flex-shrink: 0; }
