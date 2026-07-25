@@ -22,7 +22,7 @@
   let currentModel = 'auto';
   let sending = false;
   let modelPresets = {};
-  let config = { hasKey: false };
+  let config = { hasGroq: false, hasOllama: false, hasOpenRouter: false, activeProvider: 'none' };
 
   const colorMap = { economy: '#4ade80', standard: '#3b82f6', pro: '#a78bfa', auto: 'linear-gradient(135deg,#4ade80,#3b82f6,#a78bfa)' };
 
@@ -34,7 +34,25 @@
       renderModelDropdown();
       renderProviders();
       updateModelDisplay();
+      if (!config.hasGroq && !config.hasOllama) showNoProviderBanner();
     } catch (e) { console.error(e); }
+  }
+
+  function showNoProviderBanner() {
+    const existing = document.getElementById('noProviderBanner');
+    if (existing) return;
+    const banner = document.createElement('div');
+    banner.id = 'noProviderBanner';
+    banner.className = 'no-provider-banner';
+    banner.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <circle cx="7" cy="7" r="6" stroke="#f87171" stroke-width="1.2"/>
+        <path d="M7 4v3M7 9v1" stroke="#f87171" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+      <span>Нет подключенного провайдера. Откройте настройки →</span>
+    `;
+    banner.addEventListener('click', () => settingsPanel.classList.add('open'));
+    document.querySelector('.chat-panel').insertBefore(banner, messagesEl);
   }
 
   async function loadMessages() {
@@ -55,7 +73,7 @@
           <path d="M10 14h16M10 20h10" stroke="#3b4258" stroke-width="2" stroke-linecap="round"/>
         </svg>
         <p>Начните диалог</p>
-        <span>Напишите задачу или вопрос. Модель подберётся автоматически.</span>
+        <span>Бесплатные open-source модели: Llama, Mixtral, Gemma.</span>
       </div>`;
   }
 
@@ -65,7 +83,8 @@
       const div = document.createElement('div');
       div.className = 'dropdown-item' + (key === currentModel ? ' active' : '');
       div.dataset.model = key;
-      div.innerHTML = `<span class="dot ${p.color}"></span>${p.label}<span class="desc">${p.desc}</span>`;
+      const badge = p.free ? '<span class="free-badge">бесплатно</span>' : '';
+      div.innerHTML = `<span class="dot ${p.color}"></span>${p.label}${badge}<span class="desc">${p.desc}</span>`;
       div.addEventListener('click', () => selectModel(key));
       modelDropdown.appendChild(div);
     });
@@ -86,18 +105,16 @@
 
   function renderProviders() {
     const providers = [
-      { name: 'OpenAI', key: 'OPENAI_API_KEY', ok: config.hasKey, models: 'GPT-4o, o1, o3-mini, GPT-4o mini' },
-      { name: 'Anthropic', key: 'ANTHROPIC_API_KEY', ok: false, models: 'Claude 3.5 Sonnet, Claude 3 Opus' },
-      { name: 'Google', key: 'GOOGLE_API_KEY', ok: false, models: 'Gemini 1.5 Pro, Flash' },
-      { name: 'OpenRouter', key: 'OPENROUTER_API_KEY', ok: false, models: 'DeepSeek, Llama, Qwen, Mistral' },
-      { name: 'Groq', key: 'GROQ_API_KEY', ok: false, models: 'Llama 3, Mixtral, Gemma' },
-      { name: 'Ollama', key: 'OLLAMA_HOST', ok: false, models: 'Локальные модели' }
+      { name: 'Groq', key: 'GROQ_API_KEY', ok: config.hasGroq, models: 'Llama 3.1/3.2, Mixtral, Gemma 2', link: 'console.groq.com/keys' },
+      { name: 'Ollama', key: 'OLLAMA_HOST', ok: config.hasOllama, models: 'Локальные модели', link: 'ollama.com' },
+      { name: 'OpenRouter', key: 'OPENROUTER_API_KEY', ok: config.hasOpenRouter, models: 'GPT-4o, Claude, DeepSeek (требует кредитов)', link: 'openrouter.ai/settings' }
     ];
     providerGrid.innerHTML = providers.map(pr => `
       <div class="provider-card">
         <div class="info">
           <div class="name">${pr.name}</div>
           <div class="models">${pr.models}</div>
+          <div class="link">${pr.link}</div>
         </div>
         <div class="status ${pr.ok ? 'ok' : 'missing'}">${pr.ok ? 'Подключено' : 'Нужен ключ'}</div>
       </div>
@@ -185,33 +202,20 @@
     messagesEl.appendChild(div);
   }
 
-  // ── Markdown renderer (basic) ─────────────────────────
   function renderMarkdown(text) {
     if (!text) return '';
     let html = escHtml(text);
-
-    // Code blocks ```lang
-    html = html.replace(/```([a-z]*)\n?([\s\S]*?)```/g, (m, lang, code) => {
-      return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
-    });
-    // Inline `code`
+    html = html.replace(/```([a-z]*)\n?([\s\S]*?)```/g, (m, lang, code) => `<pre><code class="language-${lang}">${code.trim()}</code></pre>`);
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    // Bold
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    // Italic
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    // Lists
     html = html.replace(/^\s*[-*]\s+(.*)$/gm, '<li>$1</li>');
     html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
-    // Paragraphs
     html = html.split(/\n\n+/).map(p => p.trim() ? `<p>${p}</p>` : '').join('');
-    // Line breaks within paragraphs
     html = html.replace(/<p>([^]*?)<\/p>/g, (m, c) => `<p>${c.replace(/\n/g, '<br>')}</p>`);
-
     return html;
   }
 
-  // ── Send ──────────────────────────────────────────────
   async function sendMessage() {
     const content = inputEl.value.trim();
     if (!content || sending) return;
@@ -264,32 +268,19 @@
     }, 300);
   }
 
-  // ── Helpers ───────────────────────────────────────────
   function escHtml(str) {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
-
   function formatTime(ts) {
-    const d = new Date(ts);
-    const now = new Date();
-    const diff = Math.floor((now - d) / 1000);
+    const d = new Date(ts), now = new Date(), diff = Math.floor((now - d) / 1000);
     if (diff < 60) return `${diff} сек назад`;
     if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;
     return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   }
-
-  function scrollBottom() {
-    requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; });
-  }
+  function scrollBottom() { requestAnimationFrame(() => { messagesEl.scrollTop = messagesEl.scrollHeight; }); }
   function removeEmptyState() { messagesEl.querySelector('.empty-chat')?.remove(); }
   function autoResize() { inputEl.style.height = 'auto'; inputEl.style.height = Math.min(inputEl.scrollHeight, 180) + 'px'; }
 
-  // ── Events ────────────────────────────────────────────
   sendBtn.addEventListener('click', sendMessage);
   inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
   inputEl.addEventListener('input', autoResize);
@@ -356,28 +347,32 @@
     }
   });
 
-  // Settings panel
   settingsBtn.addEventListener('click', () => settingsPanel.classList.add('open'));
   closeSettings.addEventListener('click', () => settingsPanel.classList.remove('open'));
   document.addEventListener('click', e => { if (!settingsPanel.contains(e.target) && !settingsBtn.contains(e.target)) settingsPanel.classList.remove('open'); });
 
   scanBtn.addEventListener('click', async () => {
     scanBtn.disabled = true;
-    scanBtn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:1.5px;"></div> Сканирование...`;
-    scanStatus.textContent = 'Проверяю доступные модели через OpenAI...';
+    scanBtn.innerHTML = `<div class="spinner" style="width:12px;height:12px;border-width:1.5px;"></div> Проверка...`;
+    scanStatus.textContent = 'Проверяю провайдеров...';
     try {
       const res = await fetch('/api/config');
       const cfg = await res.json();
-      if (cfg.hasKey) {
-        scanStatus.innerHTML = 'OpenAI подключен. Доступные модели:<br>• GPT-4o<br>• GPT-4o mini<br>• o1<br>• o1-mini<br>• o3-mini';
+      config = cfg;
+      modelPresets = cfg.presets || {};
+      renderModelDropdown();
+      renderProviders();
+      updateModelDisplay();
+      if (!cfg.hasGroq && !cfg.hasOllama) {
+        scanStatus.innerHTML = 'Нет подключенных бесплатных провайдеров.<br>Добавьте GROQ_API_KEY (бесплатно) или OLLAMA_HOST.';
       } else {
-        scanStatus.textContent = 'Ключ OpenAI не найден. Добавьте OPENAI_API_KEY в секреты.';
+        scanStatus.innerHTML = `Активен: ${cfg.activeProvider}.<br>Доступно моделей: ${Object.keys(cfg.presets).length}.`;
       }
     } catch (e) {
-      scanStatus.textContent = 'Ошибка сканирования: ' + e.message;
+      scanStatus.textContent = 'Ошибка проверки: ' + e.message;
     } finally {
       scanBtn.disabled = false;
-      scanBtn.textContent = 'Сканировать модели';
+      scanBtn.textContent = 'Проверить доступность';
     }
   });
 
