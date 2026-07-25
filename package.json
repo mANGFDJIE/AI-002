@@ -1,0 +1,13 @@
+{
+  "name": "agent-ui",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.22.2",
+    "express-session": "^1.19.0",
+    "uuid": "^9.0.1"
+  }
+}
