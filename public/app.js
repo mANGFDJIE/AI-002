@@ -1706,6 +1706,18 @@
       'anthropic/claude-3-haiku': 'Claude 3 Haiku',
       'openai/gpt-5-mini': 'GPT-5 mini'
     };
+    // Сильные стороны каждой модели — показываем в шапке вместо строк
+    // статуса (раньше там было «Делегирование → claude-sonnet-…», что шум).
+    const STRENGTHS = {
+      'deepseek/deepseek-chat':                 'лёгкий диалог, суммаризация, роутинг задач',
+      'deepseek/deepseek-coder':                'код, рефакторинг, отладка, длинный контекст',
+      'deepseek/deepseek-r1':                   'глубокие рассуждения, math, логика, пошаговый разбор',
+      'deepseek/deepseek-v4-flash-thinking':    'рассуждения + скорость, код с анализом',
+      'anthropic/claude-sonnet-4.6-thinking-high': 'код, UI/архитектура, vision, длинный контекст',
+      'anthropic/claude-3-haiku':               'скорость, vision, короткие ответы',
+      'openai/gpt-5-mini':                      'vision, multimodal, быстрые ответы'
+    };
+
     const swap = /vision-модель:\s*[^\s··]+\s*→\s*([^\s·]+(?:\.[\w/-]+)?)/i.exec(status);
     const deleg = /Делегирование\s*→\s*([^\s·]+(?:\.[\w/-]+)?)/i.exec(status);
     const writes = /Записываю файлы из\s+([^\s:]+)/i.exec(status);
@@ -1718,18 +1730,25 @@
             : /deepseek-(coder|v4)/i.test(id) ? 'Coding'
             : /deepseek-r1/i.test(id) ? 'Reasoning'
             : /haiku|mini/i.test(id) ? 'Light' : 'Active';
-      sub = status;
+      // Вместо «Делегирование → …» показываем реальные сильные стороны.
+      sub = 'Сильные стороны: ' + (STRENGTHS[id] || 'мульти-задачи');
     } else if (/Маршрутизаци/.test(status)) {
       label = 'Маршрутизация'; badge = 'Router';
-      sub = 'DeepSeek Chat решает, кого позвать';
+      sub = 'Сильные стороны: ' + (STRENGTHS['deepseek/deepseek-chat'] || 'лёгкий диалог');
     } else if (/Синтез/.test(status)) {
       label = 'Синтез'; badge = 'Router';
-      sub = 'Склеиваю лучшие части ответов';
+      sub = 'Сильные стороны: ' + (STRENGTHS['deepseek/deepseek-chat'] || 'лёгкий диалог');
     } else if (/Параллельный/i.test(status)) {
       label = 'Мульти-агент'; badge = 'Multi';
-      sub = 'Несколько моделей работают параллельно';
+      const ids = (status.match(/(\w+\/\w+(?:-\w+)*(?:-[\d.]+)?(?:-thinking-high)?)/g) || []).filter(x => STRENGTHS[x]).slice(0, 2);
+      if (ids.length) {
+        sub = 'Сильные стороны: ' + ids.map(x => STRENGTHS[x]).join(' / ');
+      } else {
+        sub = 'Несколько моделей работают параллельно';
+      }
     } else if (/часть моделей/i.test(status)) {
-      label = 'Мульти-агент'; badge = 'Multi'; sub = status;
+      label = 'Мульти-агент'; badge = 'Multi';
+      sub = 'Сильные стороны: ' + (STRENGTHS['anthropic/claude-sonnet-4.6-thinking-high'] || 'код, UI');
     } else {
       return;
     }
