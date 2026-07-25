@@ -958,14 +958,25 @@
     `).join('');
   }
 
+  // Жесткая перезагрузка iframe: создаём НОВЫЙ узел iframe с тем же src +
+  // cache-bust query и подменяем старый. Это единственный способ обойти
+  // кеширование, "same URL = no fetch" no-op и iframe-кеш браузера.
+  function hardReloadIframe(basePath) {
+    if (!previewFrame) return;
+    const parent = previewFrame.parentNode;
+    if (!parent) return;
+    const newSrc = basePath.split('?')[0] + '?v=' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    const clone = previewFrame.cloneNode(false);
+    clone.removeAttribute('src');
+    parent.replaceChild(clone, previewFrame);
+    previewFrame = clone;
+    previewFrame.addEventListener('load', () => { try { scrollBottom && scrollBottom(); } catch {} }, { once: true });
+    previewFrame.src = newSrc;
+  }
+
   function reloadPreview() {
-    // Без cache-busting установка src=src часто no-op — браузер считает, что
-    // страница не менялась, и пользователь видит старую превью даже после
-    // applyCodeChanges. Цепляем ?v=Date.now(), чтобы iframe гарантированно
-    // перечитал файл с диска.
     const cur = previewFrame.getAttribute('src') || previewFrame.src || '/preview/index.html';
-    const base = cur.split('?')[0] || '/preview/index.html';
-    previewFrame.src = base + '?v=' + Date.now();
+    hardReloadIframe(cur.split('?')[0] || '/preview/index.html');
   }
 
   // Если среди только что записанных файлов есть *.html — редиректим iframe
@@ -981,7 +992,7 @@
     const target = htmls.find(p => /(^|\/)index\.html?$/i.test(p))
                 || htmls.find(p => /(^|\/)login\.html?$/i.test(p))
                 || htmls[0];
-    previewFrame.src = '/preview/' + String(target).replace(/^\/+/, '') + '?v=' + Date.now();
+    hardReloadIframe('/preview/' + String(target).replace(/^\/+/, ''));
   }
 
   // ── Messages ──────────────────────────────────────────
