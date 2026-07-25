@@ -1,1 +1,57 @@
-<!doctype html><html><body><h1>TEST-UPDATED</h1></body></html>
+import Link from 'next/link';
+
+export default function AILearningModernPage() {
+  const lessons = [
+    { title: 'Введение в нейросети', desc: 'История и основы нейросетей', duration: '45 мин', status: 'done' },
+    { title: 'Машинное обучение', desc: 'Обучение с учителем и без', duration: '60 мин', status: 'in-progress' },
+    { title: 'Глубокое обучение', desc: 'Создайте свою первую CNN', duration: '90 мин', status: 'locked' },
+    { title: 'Обработка текстов', desc: 'Трансформеры и NLP', duration: '75 мин', status: 'locked' },
+    { title: 'Деплой моделей', desc: 'Jupyter, Docker, Cloud', duration: '60 мин', status: 'locked' },
+  ];
+
+  return (
+    <div className="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen text-white p-8 font-sans">
+      {/* Hero */}
+      <section className="relative mb-12 text-center">
+        <div className="absolute inset-0 bg-gradient-to-r from-purple-700 via-purple-600 to-purple-700 opacity-50 blur-lg" />
+        <h1 className="text-5xl md:text-6xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 mb-4 leading-tight">
+          АИ Обучение — 5 уроков
+        </h1>
+        <p className="max-w-2xl mx-auto text-lg text-gray-300 mb-8">
+          Практический курс по нейросетям и машинам обучения с современным дизайном
+        </p>
+        <div className="flex justify-center gap-4">
+          <Link href="#program" className="px-6 py-3 bg-gradient-to-r from-cyan-400 to-purple-500 rounded-xl font-semibold hover:scale-105 transition-transform">Начать сейчас</Link>
+        </div>
+      </section>
+
+      {/* Программа курса */}
+      <section id="program" className="max-w-4xl mx-auto mb-16 p-6 bg-white/10 rounded-xl backdrop-blur-lg border border-white/20">
+        <h2 className="text-3xl font-semibold mb-6 text-center">Программа курса</h2>
+        <div className="flex flex-col gap-4">
+          {lessons.map((lesson, i) => (
+            <div key={i} className={`rounded-lg p-4 border transition hover:bg-white/20 ${
+              lesson.status === 'done' ? 'border-green-400' : lesson.status === 'in-progress' ? 'border-yellow-400' : 'border-gray-500'
+            }`}>
+              <h3 className="text-xl font-semibold mb-2">{lesson.title}</h3>
+              <p className="text-gray-300 mb-2">{lesson.desc}</p>
+              <div className="flex justify-between items-center text-sm text-gray-400">
+                <span>{lesson.duration}</span>
+                <span className={`px-3 py-1 rounded-full ${lesson.status === 'done' ? 'bg-green-400 text-white' : lesson.status === 'in-progress' ? 'bg-yellow-400 text-gray-900' : 'bg-gray-600 text-white'}`}>
+                  {lesson.status === 'done' ? 'Завершено' : lesson.status === 'in-progress' ? 'В процессе' : 'Заблокировано'}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Продвижение */}
+      <section className="max-w-4xl mx-auto mb-16 p-6 bg-gradient-to-r from-purple-700 via-purple-600 to-purple-700 rounded-xl backdrop-blur-lg border border-white/20 text-center">
+        <h2 className="text-3xl font-semibold mb-4">Начни обучение сегодня</h2>
+        <p className="text-gray-200 mb-6">Получите навыки для карьерного роста в AI индустрии. Запишитесь сейчас и освоите инновации!</p>
+        <button className="px-8 py-3 bg-gradient-to-r from-cyan-400 to-purple-500 rounded-xl font-semibold hover:scale-105 transition-transform">Записаться</button>
+      </section>
+    </div>
+  );
+}
