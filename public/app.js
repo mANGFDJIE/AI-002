@@ -2032,6 +2032,23 @@
         pending.push({ path: (j.path || path), size, name: 'selection.html', type: 'text/html', dataUrl: null });
         if (window.__renderAttachChips) window.__renderAttachChips();
         if (window.pushConsoleLine) window.pushConsoleLine('log', ['Selection добавлен', j.path || path]);
+        // ── Replit-Agent-стиль: выбранный элемент сразу попадает в поле ввода как
+        // блок кода. Пользователь дописывает вопрос ниже и жмёт Send — LLM получает
+        // outerHTML прямо в user-content, без необходимости «вспоминать» через
+        // workspace-snapshot.
+        try {
+          const idShort = (detail && detail.id) ? '#' + detail.id : '';
+          const clsShort = (detail && detail.classes) ? '.' + String(detail.classes).trim().split(/\s+/).join('.') : '';
+          const head = '[Selected <' + tag + idShort + clsShort + '>]';
+          const block = head + '\n```html\n' + safeOuter + '\n```\n';
+          const prev = inputEl.value || '';
+          inputEl.value = (prev ? prev.replace(/\s+$/, '') + '\n\n' : '') + block;
+          autoResize();
+          inputEl.focus();
+          const end = inputEl.value.length;
+          inputEl.setSelectionRange(end, end);
+          if (window.pushConsoleLine) window.pushConsoleLine('log', ['Selection вставлен в поле ввода (' + tag + ')']);
+        } catch (_) { /* ок, workspace-файл уже сохранён — этого достаточно */ }
         setSelectMode(false);
       } catch (e) {
         if (window.pushConsoleLine) window.pushConsoleLine('error', ['Selection failed', e.message || String(e)]);
