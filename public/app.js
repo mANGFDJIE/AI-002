@@ -1102,7 +1102,15 @@
   // (объяснения, инструкции, приветствия) остаётся как есть.
   // Эвристика: похоже, что задача требует кода (UI/правки/создание).
   // Используется в делегате/мульти, чтобы ПЕРЕПРОСИТЬ модель, если она вернула prose без кода.
-  function looksLikeCodeTask(text) {
+  // Провайдер (vsegpt) возвращает разные сообщения, когда модель недоступна
+  // по бюджету: «Exceeded soft user limit», «expected price», и т.п.
+  // Ловим одной предикатной функцией — единое правило fallback.
+  function isBudgetOrModelError(msg) {
+    if (!msg) return false;
+    return /Exceeded|soft user limit|expected price|expected_cost|insufficient|not enough|balance|not available|upgrade.*subscription|subscription plan|model.*not.*supported|недоступн|не хватает|лимит|лими/i.test(String(msg));
+  }
+
+    function looksLikeCodeTask(text) {
     if (!text) return false;
     const t = String(text).toLowerCase();
     return /\b(создай|сделай|сделайте|измени|измените|удали|удалите|переименуй|переименуйте|добавь|добавьте|замени|замените|переделай|переделайте|допиши|допишите|исправь|исправьте|почини|почините|доделай|доделайте|верстай|верстайте|отрисуй|отрисуйте|стилизуй|нарисуй|нужна|нужно|требуется|напиши|пиши|оформи|изменить|закоди|закодируй|закодируйте|стиль|страница|страницу|лэ?ндинг|форму|кнопк|button|сделай так|чтобы был[аои]?|верни|пришли|сверстай|доработай|перепиши|правь|правка|выведи|вывести|форму|форму|стилизац|тёмн|темн|светл|гладк|кругл|блок|секция|hero|меню|footer)\b/.test(t)
@@ -1340,7 +1348,7 @@
         onStep && onStep('Делегат ' + id + ': ' + r.error);
         // Если ошибка «not available / upgrade plan» — идём по ростеру вниз
         // и пробуем следующего coding/vision, пока не найдём доступного.
-        const isUnavailable = /not available|upgrade.*subscription|subscription plan|model.*not.*supported|недоступн/i.test(r.error || '');
+        const isUnavailable = isBudgetOrModelError(r.error);
         if (isUnavailable) {
           const tried = new Set([id]);
           let fallbackId = null, fallbackResp = null;
