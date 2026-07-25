@@ -1,3 +1,13 @@
+# User preferences
+
+## Язык и стиль общения
+- Общение: **русский**
+- Экономность: максимально беречь кредиты и токены — делать хорошо сразу, выполнять задачу целиком, можно медленно
+
+Это правило действует на сессию от 25 июля 2026.
+
+## Проект
+
 # Agent UI (локальные + API модели)
 
 AI-агент с чатом на **трёх провайдерах**: WebLLM (браузер, WebGPU), локальный сервер (Transformers.js, CPU), и OpenAI-совместимые API (DeepSeek, OpenAI, OpenRouter). Никаких платных подписок — модели под ваш сценарий.
@@ -28,6 +38,8 @@ AI-агент с чатом на **трёх провайдерах**: WebLLM (б
 | Переменная | Нужна | Зачем |
 |---|---|---|
 | `SESSION_SECRET` | да (установлена) | зарезервировано |
+| `OPENAI_API_KEY` | да (для прокси главный) | ключ vsegpt.ru / OpenAI-совместимого провайдера |
+| `VSEGPTRU` | fallback | ключ vsegpt.ru на случай пустого `OPENAI_API_KEY` |
 | `SUPABASE_URL` | для sync | URL проекта Supabase |
 | `SUPABASE_ANON_KEY` | для client config | публичный anon-ключ, если он нужен клиенту |
 | `SUPABASE_SERVICE_KEY` | для server sync | серверный ключ хранится только в Replit Secrets |
@@ -78,51 +90,3 @@ Sync идёт через **серверный proxy** (`/api/sync/*` в `server.
 | Llama 3.1 8B / 3.2 3B / 3.2 1B | 0.9–5 ГБ | Meta |
 | Gemma 3 12B / 4B | 2.8–7.5 ГБ | Google 2025 |
 | Mistral 7B v0.3 / Ministral 3B | 2.2–4.5 ГБ | Mistral AI |
-| Phi-4 Mini / Phi-3.5 Mini | 2.3–2.4 ГБ | Microsoft |
-| OLMo-2 7B | ~4.5 ГБ | AllenAI, Apache 2.0 |
-| Hermes 3 8B | ~5 ГБ | NousResearch |
-| Qwen 2.5 14B / 7B | 4.8–9 ГБ | 2024 |
-
-### Code-специалисты
-
-| Модель | Размер |
-|---|---|
-| **Qwen Coder 14B / 7B / 3B** | 2.2–9 ГБ |
-| CodeLlama 13B / 7B | 4.5–8 ГБ |
-
-## Авто-роутинг (тип × сложность)
-
-В режиме **«Авто»** приложение само выбирает модель на основе анализа запроса.
-
-| Тип | Pro (сложная) | Standard (средняя) | Economy (простая) |
-|---|---|---|---|
-| UI / дизайн | Qwen3 32B, Gemma 3 12B | **Qwen3.5 9B** | Llama 3.1 8B |
-| Debug | R1-Qwen 14B, Coder 14B | R1-Llama 8B, Coder 7B | Coder 3B |
-| Analysis | **R1-Qwen 32B**, Qwen3 32B | R1-Qwen 14B, Qwen3.5 9B | Phi-4 Mini |
-| Code | **Coder 14B**, R1-Qwen 14B | **Coder 7B**, Qwen3-8B | Coder 3B |
-| General | Qwen3 32B, Qwen 2.5 14B | Qwen3-8B, Qwen3.5 9B | Qwen3-4B, Llama 3.2 3B |
-
-Учитывается и доступная VRAM (детекция WebGPU-адаптера): если выбранная модель не влезет, авто-роутер спускается на tier ниже.
-
-## Ключевые файлы
-
-- `server.js` — Express, отдаёт `/api/config`, `/api/workspace/*`, статику
-- `supabase/schema.sql` — миграция для Supabase (4 таблицы + RLS)
-- `public/index.html` — каркас UI
-- `public/app.js` — логика чата, стриминг, markdown, извлечение файлов, роутинг, sync с Supabase
-- `public/webllm-chat.js` — клиент WebLLM, каталог 29 моделей, авто-роутер (тип × сложность)
-- `public/supabase-sync.js` — обёртка над `@supabase/supabase-js`: chat, model state, file backup
-- `public/web-llm.js` — собранный бандл WebLLM (~6 МБ)
-- `public/style.css` — тёмная тема
-- `workspace/preview/` — файлы агента, отдаются по `/preview/`
-
-## Пользовательские предпочтения
-
-- Сохранять русский интерфейс и структуру проекта.
-- Все LLM строго open-source, без ключей.
-- Sync с Supabase включён для метаданных (чат, состояние моделей, бэкап файлов).
-- Модели браузерные через WebGPU, ключи LLM не требуются.
-- Каталог регулярно расширяется до топ-открытых моделей.
-- Общение на русском языке.
-- Максимальная экономия кредитов и токенов — никаких лишних действий.
-- Делать сразу хорошо, можно медленно (правило от 25.07.2026).
