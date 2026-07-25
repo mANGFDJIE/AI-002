@@ -1,201 +1,239 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Вход — LOFT</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    body {
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #f5efe6 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' fill-opacity='0.08'%3E%3Cpath d='M0 0h60v60H0z'/%3E%3Crect x='15' y='15' width='30' height='30' rx='4' stroke='%23b8a99a' stroke-width='1.5'/%3E%3C/g%3E%3C/svg%3E");
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-    }
-    .loft-card {
-      background: #fcf9f5;
-      border: 1px solid #ddd2c5;
-      border-radius: 20px;
-      padding: 48px 40px 40px;
-      width: 100%;
-      max-width: 400px;
-      box-shadow: 0 12px 32px -8px rgba(0,0,0,0.12);
-      backdrop-filter: blur(2px);
-      position: relative;
-    }
-    .loft-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 6px;
-      background: linear-gradient(90deg, #c7a17a, #d6b48b 50%, #c7a17a);
-      border-radius: 20px 20px 0 0;
-    }
-    .loft-card h1 {
-      font-size: 26px;
-      font-weight: 500;
-      color: #2c2420;
-      letter-spacing: -0.02em;
-      margin-bottom: 4px;
-    }
-    .loft-card .sub {
-      color: #8a7e74;
-      font-size: 14px;
-      margin-bottom: 32px;
-      font-weight: 400;
-    }
-    .form-group {
-      margin-bottom: 22px;
-    }
-    .form-group label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: #5f534a;
-      margin-bottom: 6px;
-    }
-    .form-group input {
-      width: 100%;
-      padding: 12px 16px;
-      background: #fff;
-      border: 1px solid #dcd3ca;
-      border-radius: 12px;
-      color: #1f1a16;
-      font-size: 15px;
-      outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-    .form-group input:focus {
-      border-color: #c7a17a;
-      box-shadow: 0 0 0 3px rgba(199,161,122,0.15);
-    }
-    .form-group input::placeholder {
-      color: #b0a398;
-    }
-    .btn-loft {
-      width: 100%;
-      padding: 14px;
-      background: #3c2f28;
-      border: none;
-      border-radius: 12px;
-      color: #fcf9f5;
-      font-size: 16px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
-      margin-top: 12px;
-      letter-spacing: 0.01em;
-    }
-    .btn-loft:hover {
-      background: #57473d;
-    }
-    .btn-loft:active {
-      transform: scale(0.98);
-    }
-    .message {
-      margin-top: 20px;
-      text-align: center;
-      font-size: 13px;
-      min-height: 22px;
-      padding: 6px 12px;
-      border-radius: 8px;
-      background: transparent;
-    }
-    .message.error {
-      background: #fce8e4;
-      color: #a53d2b;
-    }
-    .message.success {
-      background: #e4f0e0;
-      color: #3a6b3f;
-    }
-    .footer-link {
-      text-align: center;
-      margin-top: 24px;
-      font-size: 13px;
-      color: #8a7e74;
-    }
-    .footer-link a {
-      color: #7a6a5c;
-      text-decoration: none;
-      border-bottom: 1px dotted #c7b7ab;
-      transition: color 0.2s;
-    }
-    .footer-link a:hover {
-      color: #3c2f28;
-      border-bottom-color: #3c2f28;
-    }
-    /* optional accent ornament */
-    .ornament {
-      display: flex;
-      justify-content: center;
-      gap: 8px;
-      margin-bottom: 28px;
-    }
-    .ornament span {
-      width: 32px;
-      height: 2px;
-      background: #d6c8bc;
-      border-radius: 2px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI — голубые оттенки</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(145deg, #e0f7fa 0%, #b2ebf2 40%, #80deea 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* декоративные элементы */
+        .bg-shape {
+            position: absolute;
+            border-radius: 50%;
+            opacity: 0.25;
+            animation: float 8s ease-in-out infinite;
+            pointer-events: none;
+        }
+        .bg-shape:nth-child(1) {
+            width: 320px;
+            height: 320px;
+            background: radial-gradient(circle, #4dd0e1, transparent);
+            top: -60px;
+            left: -80px;
+            animation-delay: 0s;
+        }
+        .bg-shape:nth-child(2) {
+            width: 240px;
+            height: 240px;
+            background: radial-gradient(circle, #00bcd4, transparent);
+            bottom: -40px;
+            right: -40px;
+            animation-delay: 3s;
+        }
+        .bg-shape:nth-child(3) {
+            width: 180px;
+            height: 180px;
+            background: radial-gradient(circle, #26c6da, transparent);
+            top: 20%;
+            right: 10%;
+            animation-delay: 5s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-24px) scale(1.05); }
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border-radius: 40px;
+            padding: 52px 44px 44px;
+            max-width: 520px;
+            width: 100%;
+            box-shadow: 0 20px 56px -12px rgba(0, 150, 200, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.3);
+            transition: transform 0.25s ease, box-shadow 0.25s ease;
+            position: relative;
+            z-index: 1;
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 28px 64px -12px rgba(0, 150, 200, 0.35);
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(0, 188, 212, 0.12);
+            color: #00838f;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: 4px 14px;
+            border-radius: 40px;
+            border: 1px solid rgba(0, 188, 212, 0.2);
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 36px;
+            font-weight: 700;
+            color: #006064;
+            letter-spacing: -0.02em;
+            margin-bottom: 6px;
+        }
+
+        .sub {
+            color: #00838f;
+            font-size: 15px;
+            font-weight: 400;
+            margin-bottom: 36px;
+            opacity: 0.75;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-bottom: 32px;
+        }
+
+        .feature {
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 18px;
+            padding: 18px 14px;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(0, 200, 220, 0.15);
+            transition: background 0.2s, border-color 0.2s;
+            text-align: center;
+        }
+        .feature:hover {
+            background: rgba(255, 255, 255, 0.8);
+            border-color: rgba(0, 188, 212, 0.35);
+        }
+        .feature .icon {
+            font-size: 28px;
+            margin-bottom: 6px;
+        }
+        .feature span {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #006064;
+        }
+
+        .btn {
+            display: inline-block;
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #00acc1, #00bcd4);
+            border: none;
+            border-radius: 30px;
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.3s, transform 0.15s, box-shadow 0.2s;
+            box-shadow: 0 6px 20px rgba(0, 150, 200, 0.25);
+        }
+        .btn:hover {
+            background: linear-gradient(135deg, #00838f, #00acc1);
+            transform: scale(1.02);
+            box-shadow: 0 10px 28px rgba(0, 150, 200, 0.35);
+        }
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        .status {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 13px;
+            color: #006064;
+            min-height: 22px;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        .status.active {
+            opacity: 1;
+            font-weight: 500;
+        }
+
+        @media (max-width: 480px) {
+            .card { padding: 32px 20px 28px; }
+            h1 { font-size: 28px; }
+            .features { grid-template-columns: 1fr; }
+        }
+    </style>
 </head>
 <body>
-  <div class="loft-card">
-    <div class="ornament">
-      <span></span><span></span><span></span>
+    <div class="bg-shape"></div>
+    <div class="bg-shape"></div>
+    <div class="bg-shape"></div>
+
+    <div class="card">
+        <div class="badge">✦ AI beta</div>
+        <h1>Нейро-помощник</h1>
+        <p class="sub">Голубой интеллект, обученный на передовых моделях</p>
+
+        <div class="features">
+            <div class="feature">
+                <div class="icon">🧠</div>
+                <span>Распознавание</span>
+            </div>
+            <div class="feature">
+                <div class="icon">⚡</div>
+                <span>Генерация</span>
+            </div>
+            <div class="feature">
+                <div class="icon">📊</div>
+                <span>Анализ</span>
+            </div>
+            <div class="feature">
+                <div class="icon">🌐</div>
+                <span>Интеграция</span>
+            </div>
+        </div>
+
+        <button class="btn" id="actionBtn">Запустить сессию</button>
+        <div class="status" id="status">Готов к работе</div>
     </div>
-    <h1>Вход</h1>
-    <p class="sub">Добро пожаловать в лофт</p>
 
-    <form id="loftForm">
-      <div class="form-group">
-        <label for="email">Email</label>
-        <input type="email" id="email" name="email" placeholder="your@email.com" required autocomplete="email">
-      </div>
-      <div class="form-group">
-        <label for="password">Пароль</label>
-        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password">
-      </div>
-      <button type="submit" class="btn-loft">Войти</button>
-    </form>
+    <script>
+        const btn = document.getElementById('actionBtn');
+        const status = document.getElementById('status');
+        let count = 0;
 
-    <div id="message" class="message"></div>
-
-    <div class="footer-link">
-      <a href="#">Забыли пароль?</a>
-    </div>
-  </div>
-
-  <script>
-    const form = document.getElementById('loftForm');
-    const msg = document.getElementById('message');
-
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const email = document.getElementById('email').value.trim();
-      const password = document.getElementById('password').value.trim();
-
-      if (!email || !password) {
-        msg.className = 'message error';
-        msg.textContent = '⚠️ Заполните оба поля';
-        return;
-      }
-
-      msg.className = 'message success';
-      msg.textContent = `✅ С возвращением, ${email.split('@')[0]}! (демо)`;
-    });
-  </script>
+        btn.addEventListener('click', () => {
+            count++;
+            const messages = [
+                '⚙️ Инициализация нейросети…',
+                '📡 Установлено соединение с облаком',
+                '✅ Модель готова к запросам',
+                '🌀 Обработка завершена (демо)'
+            ];
+            status.textContent = messages[count % messages.length];
+            status.classList.add('active');
+        });
+    </script>
 </body>
 </html>

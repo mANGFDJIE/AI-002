@@ -35,7 +35,7 @@
     el.style.display = v ? 'inline-flex' : 'none';
     el.classList.toggle('is-running', !!v);
   }
-  const LLM_SYSTEM_PROMPT = 'Вы — полноценный автономный AI-агент. Умеете писать и редактировать код, анализировать, проектировать, объяснять.\nКогда вы возвращаете КАКОЙ-ЛИБО код для файла (HTML/CSS/JS/JSON/…), ОБЯЗАТЕЛЬНО сопровождайте блок маркером пути — одним из двух способов:\n1) прямо в info-string после тройного бэктика — пример: ```html // file: index.html  либо  ```css // file: styles.css\n2) в первой строке самого блока — пример: `// file: index.html`  или  `<!-- file: index.html -->`\nБез маркера файл НЕ сохранится в workspace, и пользователь увидит код только в чате (а проводник останется пустым) — поэтому маркер обязателен для ЛЮБОГО кода, который должен попасть в файлы. Дефолты для авто-именования: HTML → index.html, CSS → styles.css, JS → script.js, JSON → data.json. Если файл уже есть в workspace — редактируйте его, а не плодите новые с тем же содержимым (см. раздел «Текущее состояние проекта» в системном контексте). Отвечайте на русском, если запрос на русском.\n\n=== ТОН ОТВЕТОВ — СТРОГО ===\nПиши в стиле Replit-агента: как инженер в Slack, а не как эссеист. Не более 2-4 предложений prose. Без вступлений («Давайте», «Хорошо», «Сейчас я», «Я рассмотрю», «Мы должны», «Вот мой план», «Давайте начнём»). Без объяснений очевидного («Это потому что…», «Как вы видите…»). Без задавания встречных вопросов в конце.\n\nФормат prose-ответа:\n• Что изменено: имя_файла — краткая суть (одна строка, через запятую — список файлов).\n• Если был выбор — одно предложение с обоснованием.\n• Если ошибка или нельзя — ровно одно предложение что не получилось.\nПример: «Создал index.html (киберпанк-стиль: фон #0ff, искры). Если хочешь поменять палитру/насыщенность — скажи.»';
+  const LLM_SYSTEM_PROMPT = 'You are an autonomous AI coding agent. You can write and edit code, analyze, design, explain. When you return ANY code for a file (HTML/CSS/JS/JSON/...), you MUST include a path marker -- one of two ways: (1) after the opening triple-backtick in the info-string: triple-backtick html // file: index.html OR triple-backtick css // file: styles.css  (2) on the first line inside the code block:  // file: index.html  OR  <!-- file: index.html -->.  Without the marker the file will NOT save to workspace and the user will see the code only in chat -- so the marker is REQUIRED for any code that should land on disk. Default auto-naming: HTML -> index.html, CSS -> styles.css, JS -> script.js, JSON -> data.json. If the file already exists in workspace, EDIT it -- do not create a new file with the same content. Reply in Russian if the request is in Russian.\n\n=== TONE (STRICT) ===\nWrite like a Replit agent: engineer in Slack, not essayist. Max 2-4 prose sentences. No leads (Let us, Well, Currently I, I will review, We should, Here is my plan, Let us begin). No explaining the obvious. No follow-up questions.\n\nProse format:\n- What changed: filename -- one-line gist (comma-separated if multiple).\n- If there was a choice: one sentence with reasoning.\n- If error/cannot: exactly one sentence on what failed.\nExample: Created index.html (cyberpunk style: bg #0ff, sparks). If you want to change palette/saturation, say.\n\n=== TARGET-FILE RULE ===\nWhen user-content carries a CEL-OBSHCh block with an explicit \'Fayl-cel: ...path.ext\', edit STRICTLY that file -- even if other files in the project contain similar markup. Do not ask \'which file should I edit?\'. Just delete/modify the element in the named file. If the element is not found in that file, say so in one sentence.\n\n=== SELECTED-ELEMENT HINT ===\nIf user mentions Tz <tag> in their text, treat it as a soft pointer to the currently attached selected-element chip. The chip already carries the pagePath, so do NOT infer file from the tag alone. Use the path from the chip / CEL-OBSHCh block.\n';
 
   // Склеивает текст + прикреплённые картинки в OpenAI multimodal content
   // (image_url parts), чтобы модель реально видела скриншоты в диалоге, а не
@@ -125,7 +125,7 @@
       // if (currentModel === 'auto') не пыталась дёргать window.llm.pickAuto.
       modelPresets['orchestrator'] = {
         name: '⭐ Авто', label: '⭐ Авто', color: 'auto',
-        desc: 'Лёгкий DeepSeek Chat решит: ответить прямой или делегировать одному эксперту (Claude Sonnet 4.6 H, DeepSeek V4 Flash, DeepSeek Coder…)',
+        desc: 'Лёгкий маршрутизатор (gpt-5-mini) решит: ответить прямой или делегировать сильному эксперту (Claude Sonnet 4.6 H, Opus 4.5, Sonnet 4.5, Sonnet 4, DeepSeek Coder, R1…)',
         openai: true,
         apiModel: 'openai/gpt-5-mini',
         router: 'auto',
@@ -133,7 +133,7 @@
       };
       modelPresets['multi'] = {
         name: '⭐ Мульти-агент', label: '⭐ Мульти-агент', color: 'pro',
-        desc: 'DeepSeek Chat рассуждает и параллельно опрашивает 3 эксперта (Claude Sonnet 4.6 H, DeepSeek V4 Flash, DeepSeek Coder…), затем синтезирует финальный ответ',
+        desc: 'Маршрутизатор рассуждает и параллельно опрашивает 3 сильных эксперта (Claude Sonnet 4.6 H, Opus 4.5, Sonnet 4.5, Sonnet 4, DeepSeek Coder, R1…), затем синтезирует финальный ответ',
         openai: true,
         apiModel: 'openai/gpt-5-mini',
         router: 'multi',
@@ -1117,20 +1117,30 @@
   // (gpt-5.4-pro-high, claude-opus-4.6, deepseek-v4-pro и v3.2-alt-thinking
   // требуют upgrade — проверено эмпирически).
   // coding:true = сильные на современном коде/UI/архитектуре (агентская работа).
+  // Ростер моделей для авто-оркестратора (VseGPT-базовый тариф).
+  //
+  // Сильные модели ВЫШЕ, дешёвые НИЖЕ. Router (deepseek-chat) сортирует сверху-вниз
+  // по ходу выбора делегата. Vision-фильтр `pickVision` тоже идёт сверху — теперь
+  // Opus/Sonnet-4.6 идёт первым при наличии картинки.
+  //
+  // coding=true  -> сильный современный код/UI/архитектура (агентская работа).
+  // tier:
+  //   premium  -> Opus thinking (дорого, но топ).
+  //   strong   -> Sonnet 4.x (тоже coding-агент, но дешевле премиума).
+  //   mid      -> рабочая лошадка для код-тасков.
+  //   light    -> для мелких Q&A.
+  //   reasoning-> пошаговое планирование.
   const ORCHESTRATOR_MODELS = [
-    // ── Дешёвые coding-модели первыми: VseGPT-юзеры часто упираются в лимит
-    // запроса (10 ₽/query), а claude-sonnet-4.6-thinking-high стоит ~130 ₽ за
-    // обычную задачу. По умолчанию делегируем код дешёвой модели.
-    { id: 'deepseek/deepseek-coder',                  tier: 'mid',     coding: true,  vision: false, cost: 1 },
-    { id: 'deepseek/deepseek-v4-flash-thinking',       tier: 'mid',     coding: true,  vision: false, cost: 2 },
-    { id: 'openai/gpt-5-mini',                        tier: 'light',   coding: false, vision: true,  cost: 2 },
-    { id: 'anthropic/claude-3-haiku',                 tier: 'light',   coding: false, vision: true,  cost: 2 },
-    { id: 'deepseek/deepseek-chat',                   tier: 'light',   coding: false, vision: false, cost: 1 },
-    { id: 'deepseek/deepseek-r1',                     tier: 'reasoning', coding: false, vision: false, cost: 3 },
-    // openai/o3 — временно отключён провайдером, поэтому в списке только безопасные альтернативы.
-    // Дорогую модель держим последней — подключается только если нужна vision + coding
-    // и ни одна дешёвая vision-модель недоступна.
-    { id: 'anthropic/claude-sonnet-4.6-thinking-high', tier: 'mid',     coding: true, vision: true,  cost: 12 }
+    { id: 'anthropic/claude-sonnet-4.6-thinking-high',  tier: 'premium',   coding: true,  vision: true,  cost: 12 },
+    { id: 'anthropic/claude-opus-4.5',                 tier: 'premium',   coding: true,  vision: true,  cost: 18 },
+    { id: 'anthropic/claude-sonnet-4.5',               tier: 'strong',    coding: true,  vision: true,  cost: 8 },
+    { id: 'anthropic/claude-sonnet-4',                 tier: 'strong',    coding: true,  vision: true,  cost: 6 },
+    { id: 'deepseek/deepseek-coder',                   tier: 'mid',       coding: true,  vision: false, cost: 1 },
+    { id: 'deepseek/deepseek-v4-flash-thinking',       tier: 'mid',       coding: true,  vision: false, cost: 2 },
+    { id: 'deepseek/deepseek-r1',                      tier: 'reasoning', coding: false, vision: false, cost: 3 },
+    { id: 'openai/gpt-5-mini',                         tier: 'light',     coding: false, vision: true,  cost: 2 },
+    { id: 'anthropic/claude-3-haiku',                  tier: 'light',     coding: false, vision: true,  cost: 2 },
+    { id: 'deepseek/deepseek-chat',                    tier: 'light',     coding: false, vision: false, cost: 1 }
   ];
 
   function orchestratorPrompt(mode) {
@@ -1216,11 +1226,12 @@
       if (!hasImageAttachment) return id;
       const cur = ORCHESTRATOR_MODELS.find(m => m.id === id);
       if (cur && cur.vision) return id;
+      // Берём САМУЮ СИЛЬНУЮ vision-модель из ростера (порядок = сила сверху-вниз),
+      // потому что картинки требуют понимания -> дешёвая haiku часто ошибается
+      // там, где Sonnet 4.6 / Opus правильно интерпретирует. Если preferCoding=true,
+      // сначала пробуем coding-вариант; если его нет — берём первый в ростере.
       const candidates = ORCHESTRATOR_MODELS.filter(m => m.vision);
-      // Сначала пробуем дешёвую vision-модель (gpt-5-mini / claude-3-haiku);
-      // дорогую claude-sonnet-4.6-thinking-high оставляем последним вариантом.
-      const ordered = candidates.slice().sort((a, b) => (a.cost || 9) - (b.cost || 9));
-      const alt = (preferCoding ? ordered.find(m => m.coding) || ordered[0] : ordered[0]) || null;
+      const alt = (preferCoding ? candidates.find(m => m.coding) || candidates[0] : candidates[0]) || null;
       if (!alt || alt.id === id) return id;
       onStep && onStep('Замена делегата на vision-модель: ' + id + ' → ' + alt.id);
       return alt.id;
@@ -1261,7 +1272,9 @@
       return { text: decision.answer || routerResp, model: routerModel };
     }
     if (decision.action === 'delegate') {
-      const id = pickVision(decision.model || 'deepseek/deepseek-coder', true);
+      // Если маршрутизатор не указал модель — берём самую сильную coding-вариант.
+      const firstStrong = ORCHESTRATOR_MODELS.find(m => m.coding) || ORCHESTRATOR_MODELS[0];
+      const id = pickVision(decision.model || firstStrong.id, true);
       if (!ORCHESTRATOR_MODELS.find(m => m.id === id)) {
         onStep && onStep('Маршрутизатор выбрал неизвестную модель: ' + id + ' — возвращаю прямой ответ');
         return { text: routerResp, model: routerModel };
@@ -1284,7 +1297,10 @@
       // Vision-эскалация перед фильтром — иначе для картинок уйдёт запрос к модели без vision.
       if (hasImageAttachment) ids = ids.map(id => pickVision(id, false));
       ids = ids.filter(id => ORCHESTRATOR_MODELS.find(m => m.id === id)).slice(0, 3);
-      if (!ids.length) ids = ['deepseek/deepseek-coder', 'deepseek/deepseek-v4-flash-thinking', 'openai/gpt-5-mini'];
+      if (!ids.length) {
+        const coding = ORCHESTRATOR_MODELS.filter(m => m.coding).slice(0, 3).map(m => m.id);
+        ids = coding.length ? coding : ['anthropic/claude-sonnet-4.6-thinking-high', 'deepseek/deepseek-coder', 'openai/gpt-5-mini'];
+      }
       onStep && onStep('Параллельный опрос ' + ids.length + ' моделей…');
       const results = await Promise.all(ids.map(async id => {
         try {
@@ -1350,17 +1366,19 @@
     const attachments = allAttach.filter(a => {
       if (a && a.type === 'select-element' && a.html) {
         const tagLabel = a.name || ('<' + (a.tag || 'div') + '>');
-        const where = a.pagePath ? ' в файле `' + a.pagePath + '`' : '';
-        // Действие-ориентированный блок: модель явно понимает, что речь о
-        // конкретном элементе в конкретном файле, и что пользовательский текст
-        // ниже — это инструкция (удалить / переименовать / изменить и т.д.).
-        snippetBlocks.push(
-          '[Контекст: выделенный элемент ' + tagLabel + where + ']\n' +
-          'outerHTML:\n```html\n' + a.html + '\n```\n' +
-          '[Действие пользователя — следующий абзац ниже]\n'
-        );
-        return false;
-      }
+        const target = a.pagePath || '(неизвестно)';
+        // Целевой блок-инструкция: модель должна править ТОЛЬКО указанный файл,
+        // а пользовательский текст ниже — это действие (удалить / изменить / …).
+      snippetBlocks.push(
+        '[🎯 ЦЕЛЬ ОПЕРАЦИИ]\n' +
+        'Файл-цель: `' + target + '`\n' +
+        'Выделенный элемент: ' + tagLabel + '\n' +
+        'outerHTML элемента (как он сейчас в файле):\n```html\n' + a.html + '\n```\n' +
+        'Править ТОЛЬКО файл `' + target + '`. Не трогать другие файлы в проекте.\n' +
+        '[/🎯 ЦЕЛЬ ОПЕРАЦИИ]\n'
+      );
+      return false;
+    }
       return true;
     });
     // Просто текст пользователя — без префикса со списком путей. Файлы уже
@@ -1749,6 +1767,9 @@
       'deepseek/deepseek-r1':                   'глубокие рассуждения, math, логика, пошаговый разбор',
       'deepseek/deepseek-v4-flash-thinking':    'рассуждения + скорость, код с анализом',
       'anthropic/claude-sonnet-4.6-thinking-high': 'код, UI/архитектура, vision, длинный контекст',
+      'anthropic/claude-sonnet-4.5':            'код, UI/архитектура, vision, широкий стек',
+      'anthropic/claude-sonnet-4':              'код, длинный контекст, vision',
+      'anthropic/claude-opus-4.5':              'премиум-агент, сложный код, vision, рассуждения',
       'anthropic/claude-3-haiku':               'скорость, vision, короткие ответы',
       'openai/gpt-5-mini':                      'vision, multimodal, быстрые ответы'
     };
